@@ -14,10 +14,10 @@ def load_data(labels=None):
     :return: train_x, train_y, test_x, test_y
     """
     # Load the data.
-    train_x = numpy.array(vigra.readHDF5("/home/philip/data/ml-koethe/train.h5", "data").transpose())
-    train_y = vigra.readHDF5("/home/philip/data/ml-koethe/train.h5", "labels")
-    test_x = numpy.array(vigra.readHDF5("/home/philip/data/ml-koethe/test.h5", "data").transpose())
-    test_y = vigra.readHDF5("/home/philip/data/ml-koethe/test.h5", "labels")
+    train_x = numpy.array(vigra.readHDF5("data/train.h5", "data").transpose())
+    train_y = vigra.readHDF5("data/train.h5", "labels")
+    test_x = numpy.array(vigra.readHDF5("data/test.h5", "data").transpose())
+    test_y = vigra.readHDF5("data/test.h5", "labels")
 
     # Reduce the data to the given labels.
     if labels is not None:
