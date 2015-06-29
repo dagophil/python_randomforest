@@ -121,27 +121,27 @@ class DecisionTreeClassifier(object):
             cl_left, counts_left = numpy.unique(labels_left, return_counts=True)
             cl_right, counts_right = numpy.unique(labels_right, return_counts=True)
 
-            # if len(cl_left) > 1 and len(cl_right) > 1:
-            # Add the children to the graph.
-            self._graph.add_node(next_node_id, begin=begin, end=middle,
-                                 label_names=cl_left, label_count=counts_left,
-                                 label_sum=sum(counts_left), is_left=True)
-            self._graph.add_node(next_node_id+1, begin=middle, end=end,
-                                 label_names=cl_right, label_count=counts_right,
-                                 label_sum=sum(counts_right), is_left=False)
-            self._graph.add_edge(node_id, next_node_id)
-            self._graph.add_edge(node_id, next_node_id+1)
+            if len(cl_left) > 1 and len(cl_right) > 1:
+                # Add the children to the graph.
+                self._graph.add_node(next_node_id, begin=begin, end=middle,
+                                     label_names=cl_left, label_count=counts_left,
+                                     label_sum=sum(counts_left), is_left=True)
+                self._graph.add_node(next_node_id+1, begin=middle, end=end,
+                                     label_names=cl_right, label_count=counts_right,
+                                     label_sum=sum(counts_right), is_left=False)
+                self._graph.add_edge(node_id, next_node_id)
+                self._graph.add_edge(node_id, next_node_id+1)
 
-            # Update the node with the split information.
-            node["split_dim"] = best_dim
-            node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.
+                # Update the node with the split information.
+                node["split_dim"] = best_dim
+                node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.
 
-            if len(cl_left) > 1:
-                qu.append(next_node_id)
-            if len(cl_right) > 1:
-                qu.append(next_node_id+1)
+                if len(cl_left) > 1:
+                    qu.append(next_node_id)
+                if len(cl_right) > 1:
+                    qu.append(next_node_id+1)
 
-            next_node_id += 2
+                next_node_id += 2
 
 
 
