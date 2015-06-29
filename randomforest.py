@@ -13,6 +13,23 @@ class DecisionTreeClassifier(object):
         self._graph = networkx.DiGraph()
         self._label_names = None
 
+    def _find_n_rand_dims(self, sh):
+        """
+        Given the shape of the training data, return the number of considered feature dimensions.
+
+        :param sh: shape
+        :return: number of considered feature dimensions
+        """
+        if self._n_rand_dims == "all":
+            n = sh[1]
+        elif self._n_rand_dims == "auto_reduced":
+            n = numpy.sqrt(sh[1])
+        else:
+            n = self._n_rand_dims
+        n = int(numpy.ceil(n))
+        n = min(n, sh[1])
+        return n
+
     def fit(self, data, labels):
         """
         Train a decision tree.
@@ -26,14 +43,7 @@ class DecisionTreeClassifier(object):
         self._label_names, labels, label_counts = numpy.unique(labels, return_inverse=True, return_counts=True)
 
         # Get the number of feature dimensions that are considered in each split.
-        if self._n_rand_dims == "all":
-            n_rand_dims = data.shape[1]
-        elif self._n_rand_dims == "auto_reduced":
-            n_rand_dims = numpy.sqrt(data.shape[1])
-        else:
-            n_rand_dims = self._n_rand_dims
-        n_rand_dims = int(numpy.ceil(n_rand_dims))
-        n_rand_dims = min(n_rand_dims, data.shape[1])
+        n_rand_dims = self._find_n_rand_dims(data.shape)
         dims = range(data.shape[1])
 
         # Create the index vector.
@@ -50,7 +60,7 @@ class DecisionTreeClassifier(object):
             node_id = qu.popleft()
             node = self._graph.node[node_id]
 
-            # Stop if there is only one label left in the node.
+            # Do not split if there is only one label left in the node.
             if len(node["label_names"]) <= 1:
                 continue
 
@@ -60,7 +70,7 @@ class DecisionTreeClassifier(object):
             label_priors = node["label_count"]
 
             # Find the best split.
-            best_gini = -1
+            best_gini = -1  # gini is always >= 0, so we can use -1 as "not set" value
             best_index = 0
             best_dim = 0
             split_dims = random.sample(dims, n_rand_dims)
@@ -81,27 +91,33 @@ class DecisionTreeClassifier(object):
                         best_index = index
                         best_dim = d
 
-            # Do the split.
+            # Sort the index vector of the current node, so that the instances of the left child are in the left half.
             feats = data[node_instances, best_dim]
             sorted_instances = numpy.argsort(feats)
             instances[begin:end] = node_instances[sorted_instances]
 
+            # Get the label count of each child.
             middle = begin+best_index
             labels_left = labels[instances[begin:middle]]
             labels_right = labels[instances[middle:end]]
-
             cl_left, counts_left = numpy.unique(labels_left, return_counts=True)
             cl_right, counts_right = numpy.unique(labels_right, return_counts=True)
 
-            self._graph.add_node(next_node_id, begin=begin, end=middle,
-                                 label_names=cl_left, label_count=counts_left)
-            self._graph.add_node(next_node_id+1, begin=middle, end=end,
-                                 label_names=cl_right, label_count=counts_right)
+            if len(cl_left) > 1 and len(cl_right) > 1:
+                # Add the children to the graph.
+                self._graph.add_node(next_node_id, begin=begin, end=middle,
+                                     label_names=cl_left, label_count=counts_left)
+                self._graph.add_node(next_node_id+1, begin=middle, end=end,
+                                     label_names=cl_right, label_count=counts_right)
+                self._graph.add_edge(node_id, next_node_id)
+                self._graph.add_edge(node_id, next_node_id+1)
+                qu.append(next_node_id)
+                qu.append(next_node_id+1)
+                next_node_id += 2
 
-            qu.append(next_node_id)
-            qu.append(next_node_id+1)
-
-            next_node_id += 2
+                # Update the node with the split information.
+                node["split_dim"] = best_dim
+                node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.0
 
     def predict_proba(self, data):
         """
