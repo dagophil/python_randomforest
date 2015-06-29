@@ -17,8 +17,7 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
 
     :param arr: array with classes
     :param priors: prior label count
-    :param class_count: number of classes
-    :return: best_gini, index
+    :return: best_gini, index, split_found
     """
     assert arr.dtype == INT and priors.dtype == INT
 
@@ -31,12 +30,18 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
     cdef INT_t i, j, c
     cdef INT_t l
     cdef double gini_left, gini_right, p_left, p_right, gini
+    cdef bint split_found = False
     for i in xrange(arr.shape[0]-1):
         l = arr[i]
         counts[l] += 1
         count_left += 1
         count_right -= 1
 
+        # Skip if there is no new split.
+        if l == arr[i+1]:
+            continue
+
+        split_found = True
         gini_left = 1.0
         gini_right = 1.0
         for j in xrange(counts.shape[0]):
@@ -55,7 +60,7 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
                 best_gini = gini
                 best_index = i
 
-    return best_gini, best_index+1
+    return best_gini, best_index+1, split_found
 
 
 @cython.boundscheck(False)

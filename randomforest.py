@@ -74,6 +74,7 @@ class DecisionTreeClassifier(object):
 
             # Do not split if there is only one label left in the node.
             if len(node["label_names"]) <= 1:
+                print "TERMINAL NODE?!"
                 continue
 
             begin = node["begin"]
@@ -91,17 +92,22 @@ class DecisionTreeClassifier(object):
                 sorted_instances = numpy.argsort(feats)
                 sorted_labels = labels[node_instances[sorted_instances]]
 
-                gini_value, index = randomforest_functions.find_best_gini(sorted_labels, label_priors)
+                gini_value, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
 
-                if best_gini < 0:
-                    best_gini = gini_value
-                    best_index = index
-                    best_dim = d
-                else:
-                    if gini_value < best_gini:
+                if split_found:
+                    if best_gini < 0:
                         best_gini = gini_value
                         best_index = index
                         best_dim = d
+                    else:
+                        if gini_value < best_gini:
+                            best_gini = gini_value
+                            best_index = index
+                            best_dim = d
+
+            if best_gini < 0:
+                print "ERR"
+
 
             # Sort the index vector of the current node, so that the instances of the left child are in the left half.
             feats = data[node_instances, best_dim]
@@ -115,23 +121,29 @@ class DecisionTreeClassifier(object):
             cl_left, counts_left = numpy.unique(labels_left, return_counts=True)
             cl_right, counts_right = numpy.unique(labels_right, return_counts=True)
 
-            if len(cl_left) > 1 and len(cl_right) > 1:
-                # Add the children to the graph.
-                self._graph.add_node(next_node_id, begin=begin, end=middle,
-                                     label_names=cl_left, label_count=counts_left,
-                                     label_sum=sum(counts_left), is_left=True)
-                self._graph.add_node(next_node_id+1, begin=middle, end=end,
-                                     label_names=cl_right, label_count=counts_right,
-                                     label_sum=sum(counts_right), is_left=False)
-                self._graph.add_edge(node_id, next_node_id)
-                self._graph.add_edge(node_id, next_node_id+1)
-                qu.append(next_node_id)
-                qu.append(next_node_id+1)
-                next_node_id += 2
+            # if len(cl_left) > 1 and len(cl_right) > 1:
+            # Add the children to the graph.
+            self._graph.add_node(next_node_id, begin=begin, end=middle,
+                                 label_names=cl_left, label_count=counts_left,
+                                 label_sum=sum(counts_left), is_left=True)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end,
+                                 label_names=cl_right, label_count=counts_right,
+                                 label_sum=sum(counts_right), is_left=False)
+            self._graph.add_edge(node_id, next_node_id)
+            self._graph.add_edge(node_id, next_node_id+1)
 
-                # Update the node with the split information.
-                node["split_dim"] = best_dim
-                node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.
+            # Update the node with the split information.
+            node["split_dim"] = best_dim
+            node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.
+
+            if len(cl_left) > 1:
+                qu.append(next_node_id)
+            if len(cl_right) > 1:
+                qu.append(next_node_id+1)
+
+            next_node_id += 2
+
+
 
     def predict_proba(self, data):
         """
@@ -148,20 +160,24 @@ class DecisionTreeClassifier(object):
         node_label_count = numpy.zeros((num_nodes, len(self._label_names)), numpy.int_)
         for node_id in self._graph.nodes():
             node = self._graph.node[node_id]
+            for k, j in enumerate(node["label_names"]):
+                node_label_count[node_id, j] = node["label_count"][k]
             if "split_dim" in node:
                 n0_id, n1_id = self._graph.neighbors(node_id)
                 if not self._graph.node[n0_id]["is_left"]:
+                    assert self._graph.node[n1_id]["is_left"]
                     n0_id, n1_id = n1_id, n0_id
                 node_children[node_id, 0] = n0_id
                 node_children[node_id, 1] = n1_id
                 node_split_dims[node_id] = node["split_dim"]
                 node_split_values[node_id] = node["split_value"]
-            for k, j in enumerate(node["label_names"]):
-                node_label_count[node_id, j] = node["label_count"][k]
+            # else:
+            #     print node_label_count[node_id]
 
         # Call the cython probability function.
         probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, node_split_dims,
                                                      node_split_values, node_label_count)
+        # print probs
         return probs
 
     def predict(self, data):
@@ -212,8 +228,12 @@ class RandomForestClassifier(object):
                 tree.fit(data, labels)
         else:
             with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
-                futures = [(i, executor.submit(train_single_tree, tree, data, labels))
-                           for i, tree in enumerate(self._trees)]
+                futures = []
+                for i, tree in enumerate(self._trees):
+                    sample_indices = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
+                    tree_data = data[sample_indices]
+                    tree_labels = labels[sample_indices]
+                    futures.append((i, executor.submit(train_single_tree, tree, tree_data, tree_labels)))
                 for i, future in futures:
                     self._trees[i] = future.result()
 
