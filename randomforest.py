@@ -2,8 +2,10 @@ import numpy
 import networkx
 import collections
 import random
-import gini
+import randomforest_functions
 import time
+import concurrent.futures
+import multiprocessing
 
 
 class DecisionTreeClassifier(object):
@@ -12,6 +14,14 @@ class DecisionTreeClassifier(object):
         self._n_rand_dims = n_rand_dims
         self._graph = networkx.DiGraph()
         self._label_names = None
+
+    def classes(self):
+        """
+        Return the classes that were found in training.
+
+        :return: the classes
+        """
+        return numpy.array(self._label_names)
 
     def _find_n_rand_dims(self, sh):
         """
@@ -50,7 +60,9 @@ class DecisionTreeClassifier(object):
         instances = numpy.array(xrange(0, data.shape[0]))
 
         # Add the root node to the graph and the queue.
-        self._graph.add_node(0, begin=0, end=data.shape[0], label_names=self._label_names, label_count=label_counts)
+        self._graph.add_node(0, begin=0, end=data.shape[0],
+                             label_names=numpy.array(range(len(self._label_names))), label_count=label_counts,
+                             label_sum=sum(label_counts))
         next_node_id = 1
         qu = collections.deque()
         qu.append(0)
@@ -79,7 +91,7 @@ class DecisionTreeClassifier(object):
                 sorted_instances = numpy.argsort(feats)
                 sorted_labels = labels[node_instances[sorted_instances]]
 
-                gini_value, index = gini.find_best_gini(sorted_labels, label_priors)
+                gini_value, index = randomforest_functions.find_best_gini(sorted_labels, label_priors)
 
                 if best_gini < 0:
                     best_gini = gini_value
@@ -106,9 +118,11 @@ class DecisionTreeClassifier(object):
             if len(cl_left) > 1 and len(cl_right) > 1:
                 # Add the children to the graph.
                 self._graph.add_node(next_node_id, begin=begin, end=middle,
-                                     label_names=cl_left, label_count=counts_left)
+                                     label_names=cl_left, label_count=counts_left,
+                                     label_sum=sum(counts_left), is_left=True)
                 self._graph.add_node(next_node_id+1, begin=middle, end=end,
-                                     label_names=cl_right, label_count=counts_right)
+                                     label_names=cl_right, label_count=counts_right,
+                                     label_sum=sum(counts_right), is_left=False)
                 self._graph.add_edge(node_id, next_node_id)
                 self._graph.add_edge(node_id, next_node_id+1)
                 qu.append(next_node_id)
@@ -117,7 +131,7 @@ class DecisionTreeClassifier(object):
 
                 # Update the node with the split information.
                 node["split_dim"] = best_dim
-                node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.0
+                node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.
 
     def predict_proba(self, data):
         """
@@ -126,7 +140,29 @@ class DecisionTreeClassifier(object):
         :param data: the data
         :return: class probabilities of the data
         """
-        raise NotImplementedError
+        # Transform the graph information into arrays.
+        num_nodes = self._graph.number_of_nodes()
+        node_children = -numpy.ones((num_nodes, 2), numpy.int_)
+        node_split_dims = numpy.zeros((num_nodes,), numpy.int_)
+        node_split_values = numpy.zeros((num_nodes,), numpy.float_)
+        node_label_count = numpy.zeros((num_nodes, len(self._label_names)), numpy.int_)
+        for node_id in self._graph.nodes():
+            node = self._graph.node[node_id]
+            if "split_dim" in node:
+                n0_id, n1_id = self._graph.neighbors(node_id)
+                if not self._graph.node[n0_id]["is_left"]:
+                    n0_id, n1_id = n1_id, n0_id
+                node_children[node_id, 0] = n0_id
+                node_children[node_id, 1] = n1_id
+                node_split_dims[node_id] = node["split_dim"]
+                node_split_values[node_id] = node["split_value"]
+            for k, j in enumerate(node["label_names"]):
+                node_label_count[node_id, j] = node["label_count"][k]
+
+        # Call the cython probability function.
+        probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, node_split_dims,
+                                                     node_split_values, node_label_count)
+        return probs
 
     def predict(self, data):
         """
@@ -135,7 +171,20 @@ class DecisionTreeClassifier(object):
         :param data: the data
         :return: classes of the data
         """
-        raise NotImplementedError
+        probs = self.predict_proba(data)
+        pred = numpy.argmax(probs, axis=1)
+        return self._label_names[pred]
+
+
+def train_single_tree(tree, *args, **kwargs):
+    """
+    Train a single tree and return it.
+
+    :param tree: the tree
+    :return: the (trained) tree
+    """
+    tree.fit(*args, **kwargs)
+    return tree
 
 
 class RandomForestClassifier(object):
@@ -148,15 +197,29 @@ class RandomForestClassifier(object):
 
         self._n_estimators = n_estimators
         self._trees = [DecisionTreeClassifier(n_rand_dims=tree_rand_dims) for _ in xrange(n_estimators)]
+        self._label_names = None
 
-    def fit(self, data, labels):
+    def fit(self, data, labels, n_jobs=None):
         """
         Train a random forest.
 
         :param data: the data
         :param labels: classes of the data
+        :param n_jobs: number of parallel jobs
         """
-        raise NotImplementedError
+        if n_jobs == 1 or multiprocessing.cpu_count() == 1:
+            for tree in self._trees:
+                tree.fit(data, labels)
+        else:
+            with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
+                futures = [(i, executor.submit(train_single_tree, tree, data, labels))
+                           for i, tree in enumerate(self._trees)]
+                for i, future in futures:
+                    self._trees[i] = future.result()
+
+        self._label_names = self._trees[0].classes()
+        for tree in self._trees[1:]:
+            assert (self._label_names == tree.classes()).all()
 
     def predict_proba(self, data):
         """
@@ -165,7 +228,10 @@ class RandomForestClassifier(object):
         :param data: the data
         :return: class probabilities of the data
         """
-        raise NotImplementedError
+        probs = numpy.zeros((len(self._trees), data.shape[0], len(self._label_names)), dtype=numpy.float_)
+        for i, tree in enumerate(self._trees):
+            probs[i, :, :] = tree.predict_proba(data)
+        return numpy.mean(probs, axis=0)
 
     def predict(self, data):
         """
@@ -174,4 +240,6 @@ class RandomForestClassifier(object):
         :param data: the data
         :return: classes of the data
         """
-        raise NotImplementedError
+        probs = self.predict_proba(data)
+        pred = numpy.argmax(probs, axis=1)
+        return self._label_names[pred]

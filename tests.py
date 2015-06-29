@@ -2,6 +2,7 @@ import sys
 import vigra
 import numpy
 import randomforest
+import argparse
 import time
 
 
@@ -30,26 +31,88 @@ def load_data(labels=None):
     return train_x, train_y, test_x, test_y
 
 
-def train_rf():
+def train_dt():
     """
-    Train a random forest and compute the accuracy on a test set.
+    Train a single decision tree and compute the accuracy on a test set.
     """
+    print "Train a single decision tree."
     train_x, train_y, test_x, test_y = load_data([3, 8])
-    dtree = randomforest.DecisionTreeClassifier("auto_reduced")
+    dtree = randomforest.DecisionTreeClassifier(n_rand_dims="auto_reduced")
+
     start = time.time()
     dtree.fit(train_x, train_y)
     end = time.time()
-    print end-start
+    print "Training took %.03f seconds." % (end-start)
+
+    start = time.time()
     pred_y = dtree.predict(test_x)
+    end = time.time()
+    print "Prediction took %.03f seconds." % (end-start)
+
     count = sum([1 if a == b else 0 for a, b in zip(test_y, pred_y)])
-    print "%d of %d correct (%.02f%%)" % (count, len(pred_y), count/float(len(pred_y)))
+    print "%d of %d correct (%.03f%%)" % (count, len(pred_y), (100.0*count)/len(pred_y))
+
+
+def train_rf(n_trees):
+    """
+    Train a random forest and compute the accuracy on a test set.
+
+    :param n_trees: number of trees
+    """
+    print "Train a random forest with %d trees." % n_trees
+    train_x, train_y, test_x, test_y = load_data([3, 8])
+    rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto")
+
+    start = time.time()
+    rf.fit(train_x, train_y)
+    end = time.time()
+    print "Training took %.03f seconds." % (end-start)
+
+    start = time.time()
+    pred_y = rf.predict(test_x)
+    end = time.time()
+    print "Prediction took %.03f seconds." % (end-start)
+
+    count = sum([1 if a == b else 0 for a, b in zip(test_y, pred_y)])
+    print "%d of %d correct (%.03f%%)" % (count, len(pred_y), (100.0*count)/len(pred_y))
+
+
+def parse_command_line():
+    """
+    Parse the command line arguments.
+
+    :return: command line arguments
+    """
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                     description="A python random forest implementation.")
+    parser.add_argument("--dtree", action="store_true", help="train a single decision tree")
+    parser.add_argument("--rf", action="store_true", help="train a random forest")
+    parser.add_argument("-n", type=int, default=100, help="number of trees in the random forest")
+    args = parser.parse_args()
+
+    if not args.dtree and not args.rf:
+        args.rf = True
+
+    return args
 
 
 def main():
-    train_rf()
+    """
+    Call the functions according to the command line arguments.
+
+    :return: always return 0
+    """
+    args = parse_command_line()
+
+    if args.dtree:
+        train_dt()
+    if args.rf:
+        train_rf(args.n)
+
     return 0
 
 
 if __name__ == "__main__":
+    # Call the main function so the global namespace is not cluttered.
     status = main()
     sys.exit(status)
