@@ -45,12 +45,12 @@ def train_dt():
     print "Training took %.03f seconds." % (end-start)
 
     start = time.time()
-    pred_y = dtree.predict(test_x)
+    pred = dtree.predict(test_x)
     end = time.time()
     print "Prediction took %.03f seconds." % (end-start)
 
-    count = sum([1 if a == b else 0 for a, b in zip(test_y, pred_y)])
-    print "%d of %d correct (%.03f%%)" % (count, len(pred_y), (100.0*count)/len(pred_y))
+    count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+    print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
 def train_rf(n_trees):
@@ -69,12 +69,12 @@ def train_rf(n_trees):
     print "Training took %.03f seconds." % (end-start)
 
     start = time.time()
-    pred_y = rf.predict(test_x)
+    pred = rf.predict(test_x)
     end = time.time()
     print "Prediction took %.03f seconds." % (end-start)
 
-    count = sum([1 if a == b else 0 for a, b in zip(test_y, pred_y)])
-    print "%d of %d correct (%.03f%%)" % (count, len(pred_y), (100.0*count)/len(pred_y))
+    count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+    print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
 def parse_command_line():
