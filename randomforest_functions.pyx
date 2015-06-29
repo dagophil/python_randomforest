@@ -2,14 +2,12 @@ import numpy
 cimport numpy
 cimport cython
 
-# DTYPE = numpy.int64
-# ctypedef numpy.int64_t DTYPE_t
-
 FLOAT = numpy.float_
 ctypedef numpy.float_t FLOAT_t
 
 INT = numpy.int_
 ctypedef numpy.int_t INT_t
+
 
 @cython.boundscheck(False)
 @cython.cdivision(True)
