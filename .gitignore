@@ -1,0 +1,4 @@
+*.pyd
+*.pyc
+build/
+randomforest/randomforest_functions.c
