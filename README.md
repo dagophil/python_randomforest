@@ -6,6 +6,11 @@ This repository contains python/cython code with a random forest implementation.
 python setup.py build_ext --inplace
 ```
 
+To use VisualStudio on Windows, call 
+```
+python setup.py build_ext -c msvc --inplace
+```
+
 ### Example usage in your python code:
 ```
 rf = randomforest.RandomForestClassifier(n_estimators=100)
