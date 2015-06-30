@@ -53,15 +53,16 @@ def train_dt():
     print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
-def train_rf(n_trees):
+def train_rf(n_trees, n_jobs):
     """
     Train a random forest and compute the accuracy on a test set.
 
     :param n_trees: number of trees
+    :param n_jobs: number of jobs
     """
     print "Train a random forest with %d trees." % n_trees
     train_x, train_y, test_x, test_y = load_data([3, 8])
-    rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto")
+    rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto", n_jobs=n_jobs)
 
     start = time.time()
     rf.fit(train_x, train_y)
@@ -87,11 +88,14 @@ def parse_command_line():
                                      description="A python random forest implementation.")
     parser.add_argument("--dtree", action="store_true", help="train a single decision tree")
     parser.add_argument("--rf", action="store_true", help="train a random forest")
-    parser.add_argument("-n", type=int, default=100, help="number of trees in the random forest")
+    parser.add_argument("-n", "--n_trees", type=int, default=100, help="number of trees in the random forest")
+    parser.add_argument("--n_jobs", type=int, default=-1, help="number of jobs (-1: use number of cores)")
     args = parser.parse_args()
 
     if not args.dtree and not args.rf:
         args.rf = True
+    if args.n_jobs <= 0:
+        args.n_jobs = None
 
     return args
 
@@ -107,7 +111,7 @@ def main():
     if args.dtree:
         train_dt()
     if args.rf:
-        train_rf(args.n)
+        train_rf(args.n_trees, args.n_jobs)
 
     return 0
 

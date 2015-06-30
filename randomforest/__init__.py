@@ -192,29 +192,29 @@ def train_single_tree(tree, *args, **kwargs):
 
 class RandomForestClassifier(object):
 
-    def __init__(self, n_estimators=10, n_rand_dims="auto"):
+    def __init__(self, n_estimators=10, n_rand_dims="auto", n_jobs=None):
         if n_rand_dims == "auto":
             tree_rand_dims = "auto_reduced"
         else:
             tree_rand_dims = "all"
 
         self._n_estimators = n_estimators
+        self._n_jobs = n_jobs
         self._trees = [DecisionTreeClassifier(n_rand_dims=tree_rand_dims) for _ in xrange(n_estimators)]
         self._label_names = None
 
-    def fit(self, data, labels, n_jobs=None):
+    def fit(self, data, labels):
         """
         Train a random forest.
 
         :param data: the data
         :param labels: classes of the data
-        :param n_jobs: number of parallel jobs
         """
-        if n_jobs == 1 or multiprocessing.cpu_count() == 1:
+        if self._n_jobs == 1 or multiprocessing.cpu_count() == 1:
             for tree in self._trees:
                 tree.fit(data, labels)
         else:
-            with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
+            with concurrent.futures.ProcessPoolExecutor(self._n_jobs) as executor:
                 futures = []
                 for i, tree in enumerate(self._trees):
                     sample_indices = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
