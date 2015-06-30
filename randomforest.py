@@ -51,6 +51,8 @@ class DecisionTreeClassifier(object):
 
         # Translate the labels to 0, 1, 2, ...
         self._label_names, labels, label_counts = numpy.unique(labels, return_inverse=True, return_counts=True)
+        assert len(self._label_names) > 1
+        label_names = numpy.array(xrange(len(self._label_names)))
 
         # Get the number of feature dimensions that are considered in each split.
         n_rand_dims = self._find_n_rand_dims(data.shape)
@@ -60,9 +62,7 @@ class DecisionTreeClassifier(object):
         instances = numpy.array(xrange(0, data.shape[0]))
 
         # Add the root node to the graph and the queue.
-        self._graph.add_node(0, begin=0, end=data.shape[0],
-                             label_names=numpy.array(range(len(self._label_names))), label_count=label_counts,
-                             label_sum=sum(label_counts))
+        self._graph.add_node(0, begin=0, end=data.shape[0], label_names=label_names, label_count=label_counts)
         next_node_id = 1
         qu = collections.deque()
         qu.append(0)
@@ -71,12 +71,6 @@ class DecisionTreeClassifier(object):
         while len(qu) > 0:
             node_id = qu.popleft()
             node = self._graph.node[node_id]
-
-            # Do not split if there is only one label left in the node.
-            if len(node["label_names"]) <= 1:
-                print "TERMINAL NODE?!"
-                continue
-
             begin = node["begin"]
             end = node["end"]
             node_instances = instances[begin:end]
@@ -105,9 +99,7 @@ class DecisionTreeClassifier(object):
                             best_index = index
                             best_dim = d
 
-            if best_gini < 0:
-                print "ERR"
-
+            assert best_gini > -1
 
             # Sort the index vector of the current node, so that the instances of the left child are in the left half.
             feats = data[node_instances, best_dim]
@@ -121,29 +113,25 @@ class DecisionTreeClassifier(object):
             cl_left, counts_left = numpy.unique(labels_left, return_counts=True)
             cl_right, counts_right = numpy.unique(labels_right, return_counts=True)
 
-            if len(cl_left) > 1 and len(cl_right) > 1:
-                # Add the children to the graph.
-                self._graph.add_node(next_node_id, begin=begin, end=middle,
-                                     label_names=cl_left, label_count=counts_left,
-                                     label_sum=sum(counts_left), is_left=True)
-                self._graph.add_node(next_node_id+1, begin=middle, end=end,
-                                     label_names=cl_right, label_count=counts_right,
-                                     label_sum=sum(counts_right), is_left=False)
-                self._graph.add_edge(node_id, next_node_id)
-                self._graph.add_edge(node_id, next_node_id+1)
+            # Add the children to the graph.
+            self._graph.add_node(next_node_id, begin=begin, end=middle,
+                                 label_names=cl_left, label_count=counts_left,
+                                 is_left=True)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end,
+                                 label_names=cl_right, label_count=counts_right,
+                                 is_left=False)
+            self._graph.add_edge(node_id, next_node_id)
+            self._graph.add_edge(node_id, next_node_id+1)
 
-                # Update the node with the split information.
-                node["split_dim"] = best_dim
-                node["split_value"] = (data[middle-1, best_dim] + data[middle, best_dim]) / 2.
+            # Update the node with the split information.
+            node["split_dim"] = best_dim
+            node["split_value"] = (data[instances[middle-1], best_dim] + data[instances[middle], best_dim]) / 2.
 
-                if len(cl_left) > 1:
-                    qu.append(next_node_id)
-                if len(cl_right) > 1:
-                    qu.append(next_node_id+1)
-
-                next_node_id += 2
-
-
+            if len(cl_left) > 1:
+                qu.append(next_node_id)
+            if len(cl_right) > 1:
+                qu.append(next_node_id+1)
+            next_node_id += 2
 
     def predict_proba(self, data):
         """
@@ -177,7 +165,6 @@ class DecisionTreeClassifier(object):
         # Call the cython probability function.
         probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, node_split_dims,
                                                      node_split_values, node_label_count)
-        # print probs
         return probs
 
     def predict(self, data):
