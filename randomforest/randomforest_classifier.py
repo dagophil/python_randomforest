@@ -179,14 +179,26 @@ class DecisionTreeClassifier(object):
         return self._label_names[pred]
 
 
-def train_single_tree(tree, *args, **kwargs):
+def train_single_tree(tree, (data_ptr, data_dtype, data_shape), (labels_ptr, labels_dtype, labels_shape)):
     """
     Train a single tree and return it.
 
     :param tree: the tree
     :return: the (trained) tree
     """
-    tree.fit(*args, **kwargs)
+    data_size = 1
+    for s in data_shape:
+        data_size *= s
+    data_bfr = numpy.core.multiarray.int_asbuffer(data_ptr, data_size * data_dtype.itemsize)
+    data = numpy.frombuffer(data_bfr, data_dtype).reshape(data_shape)
+
+    labels_size = 1
+    for s in labels_shape:
+        labels_size *= s
+    labels_bfr = numpy.core.multiarray.int_asbuffer(labels_ptr, labels_size * labels_dtype.itemsize)
+    labels = numpy.frombuffer(labels_bfr, labels_dtype).reshape(labels_shape)
+
+    tree.fit(data, labels)
     return tree
 
 
@@ -216,11 +228,10 @@ class RandomForestClassifier(object):
         else:
             with concurrent.futures.ProcessPoolExecutor(self._n_jobs) as executor:
                 futures = []
+                data_info = (data.ctypes.data, data.dtype, data.shape)
+                labels_info = (labels.ctypes.data, labels.dtype, labels.shape)
                 for i, tree in enumerate(self._trees):
-                    sample_indices = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
-                    tree_data = data[sample_indices]
-                    tree_labels = labels[sample_indices]
-                    futures.append((i, executor.submit(train_single_tree, tree, tree_data, tree_labels)))
+                    futures.append((i, executor.submit(train_single_tree, tree, data_info, labels_info)))
                 for i, future in futures:
                     self._trees[i] = future.result()
 
