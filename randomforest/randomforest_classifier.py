@@ -226,10 +226,10 @@ class RandomForestClassifier(object):
             for tree in self._trees:
                 tree.fit(data, labels)
         else:
+            data_info = (data.ctypes.data, data.dtype, data.shape)
+            labels_info = (labels.ctypes.data, labels.dtype, labels.shape)
             with concurrent.futures.ProcessPoolExecutor(self._n_jobs) as executor:
                 futures = []
-                data_info = (data.ctypes.data, data.dtype, data.shape)
-                labels_info = (labels.ctypes.data, labels.dtype, labels.shape)
                 for i, tree in enumerate(self._trees):
                     futures.append((i, executor.submit(train_single_tree, tree, data_info, labels_info)))
                 for i, future in futures:
