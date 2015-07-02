@@ -56,7 +56,7 @@ class GiniUpdater(object):
 
 class DecisionTreeClassifier(object):
 
-    def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True):
+    def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True, resample_count=None):
         """
         Create a DecisionTreeClassifier.
 
@@ -64,12 +64,20 @@ class DecisionTreeClassifier(object):
             "auto_reduced": use sqrt(num_features), some integer: use the given number)
         :param bootstrap_sampling: use bootstrap sampling
         :param use_sample_label_count: use the label counts of instance sample instead of the true instances
+        :param resample_count: if this is an integer, create a sample with this many instances in each node and compute
+            the best split from there
         """
         self._n_rand_dims = n_rand_dims
         self._graph = networkx.DiGraph()
         self._label_names = None
         self._bootstrap_sampling = bootstrap_sampling
         self._use_sample_label_count = use_sample_label_count
+        self._resample_count = resample_count
+        if (not bootstrap_sampling) and (resample_count is None):
+            self._use_sample_label_count = False
+        if resample_count is not None:
+            self._use_sample_label_count = False
+            self._bootstrap_sampling = False
 
     def classes(self):
         """
@@ -109,14 +117,14 @@ class DecisionTreeClassifier(object):
         class_count[classes] = counts
         return len(classes), class_count
 
-    def fit(self, data, labels):
+    def _fit_resample_count(self, data, labels):
         """
-        Train a decision tree.
+        Fit the tree without bootstrap sampling and with resampling in each node.
 
         :param data: the data
-        :param labels: classes of the data
+        :param labels: the labels
         """
-        assert data.shape[0] == labels.shape[0]
+        assert self._resample_count is not None
 
         # Get the number of feature dimensions that are considered in each split.
         n_rand_dims = self._find_n_rand_dims(data.shape)
@@ -128,18 +136,9 @@ class DecisionTreeClassifier(object):
 
         # Create the index vector.
         instances = numpy.array(xrange(0, data.shape[0]))
-        if self._bootstrap_sampling:
-            sample_instances = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
-            label_names, label_counts = numpy.unique(labels[sample_instances], return_counts=True)
-            if len(self._label_names) != len(label_names):
-                raise Exception("The sampling step removed one class completely.")
-        else:
-            sample_instances = numpy.array(instances)
 
         # Add the root node to the graph and the queue.
-        self._graph.add_node(0, begin=0, end=data.shape[0],
-                             begin_sample=0, end_sample=data.shape[0],
-                             sample_label_counts=label_counts)
+        self._graph.add_node(0, begin=0, end=data.shape[0], label_counts=label_counts)
         next_node_id = 1
         qu = collections.deque()
         qu.append(0)
@@ -148,73 +147,68 @@ class DecisionTreeClassifier(object):
         while len(qu) > 0:
             node_id = qu.popleft()
             node = self._graph.node[node_id]
+            begin = node["begin"]
+            end = node["end"]
 
-            # TODO: Resample eventually.
-            begin_sample = node["begin_sample"]
-            end_sample = node["end_sample"]
+            if self._resample_count < end-begin:
+                num_samples = min(self._resample_count, end-begin)
+                sample_indices = numpy.random.random_integers(begin, end-1, num_samples)
+                node_instances = instances[sample_indices]
+                num_classes, label_priors = self._get_split_class_count(labels, node_instances)
 
-            sample_node_instances = sample_instances[begin_sample:end_sample]
-            sample_label_priors = node["sample_label_counts"]
+                # Do not split if no split is possible with the current sample.
+                if num_classes <= 1:
+                    continue
+            else:
+                node_instances = instances[begin:end]
+                label_priors = node["label_counts"]
 
             # Find the best split.
-            gini_updater = GiniUpdater(index=0, dim=0)
+            gini_updater = GiniUpdater(index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
-                feats = data[sample_node_instances, d]
+                feats = data[node_instances, d]
                 sorted_instances = numpy.argsort(feats)
-                sorted_labels = labels[sample_node_instances[sorted_instances]]
-                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, sample_label_priors)
+                sorted_labels = labels[node_instances[sorted_instances]]
+                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
                 if split_found:
                     gini_updater.update(gini, index=index, dim=d)
 
             # Do not split if no split was found.
             if not gini_updater.updated():
                 continue
-
             best_index = gini_updater["index"]
             best_dim = gini_updater["dim"]
 
-            # TODO: Do not do this when resampling in each node.
-            # Sort the sample vector of the current node, so it can be easily split into two children.
-            feats = data[sample_node_instances, best_dim]
+            # Sort the node instances.
+            feats = data[node_instances, best_dim]
             sorted_instances = numpy.argsort(feats)
-            sample_instances[begin_sample:end_sample] = sample_node_instances[sorted_instances]
-
-            # Get the label count of the sample of each child.
-            middle_sample = begin_sample+best_index
-            num_classes_left, class_count_left = \
-                self._get_split_class_count(labels, sample_instances[begin_sample:middle_sample])
-            num_classes_right, class_count_right = \
-                self._get_split_class_count(labels, sample_instances[middle_sample:end_sample])
+            node_instances = node_instances[sorted_instances]
 
             # Update the current node with the split information.
             node["split_dim"] = best_dim
-            node["split_value"] = (data[sample_instances[middle_sample-1], best_dim] +
-                                   data[sample_instances[middle_sample], best_dim]) / 2.0
+            node["split_value"] = (data[node_instances[best_index-1], best_dim] +
+                                   data[node_instances[best_index], best_dim]) / 2.0
 
-            left_properties = dict(begin_sample=begin_sample, end_sample=middle_sample,
-                                   sample_label_counts=class_count_left, is_left=True)
-            right_properties = dict(begin_sample=middle_sample, end_sample=end_sample,
-                                    sample_label_counts=class_count_right, is_left=False)
+            # Sort the index vector.
+            node_instances = instances[begin:end]
+            feats = data[node_instances, best_dim]
+            sorted_instances = numpy.argsort(feats)
+            instances[begin:end] = node_instances[sorted_instances]
+            middle = begin + bisect.bisect_right(feats[sorted_instances], node["split_value"])
 
-            if not self._use_sample_label_count:
-                # Sort the instance vector of the current node, so it can be easily split into two children.
-                begin = node["begin"]
-                end = node["end"]
-                node_instances = instances[begin:end]
-                feats = data[node_instances, best_dim]
-                sorted_instances = numpy.argsort(feats)
-                instances[begin:end] = node_instances[sorted_instances]
-                middle = begin + bisect.bisect_right(feats[sorted_instances], node["split_value"])
+            num_classes_left, class_count_left = self._get_split_class_count(labels, instances[begin:middle])
+            num_classes_right, class_count_right = self._get_split_class_count(labels, instances[middle:end])
 
-                left_properties["begin"] = begin
-                left_properties["end"] = middle
-                right_properties["begin"] = middle
-                right_properties["end"] = end
+            # Do not split if the split is invalid.
+            if num_classes_left == 0 or num_classes_right == 0:
+                del node["split_dim"]
+                del node["split_value"]
+                continue
 
             # Add the children to the graph.
-            self._graph.add_node(next_node_id, left_properties)
-            self._graph.add_node(next_node_id+1, right_properties)
+            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left, is_left=True)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right, is_left=False)
             self._graph.add_edge(node_id, next_node_id)
             self._graph.add_edge(node_id, next_node_id+1)
 
@@ -224,18 +218,334 @@ class DecisionTreeClassifier(object):
                 qu.append(next_node_id+1)
             next_node_id += 2
 
-        # Update the label counts in the leaf nodes.
-        if self._use_sample_label_count:
-            for node_id in self._graph.nodes():
-                node = self._graph.node[node_id]
-                node["label_counts"] = node["sample_label_counts"]
+    def _fit_use_sample_label_count(self, data, labels):
+        """
+        Fit the tree using bootstrap sampling without resampling in each node. Use the out of bags in the prediction.
+
+        :param data: the data
+        :param labels: the labels
+        """
+        # Get the number of feature dimensions that are considered in each split.
+        n_rand_dims = self._find_n_rand_dims(data.shape)
+        dims = range(data.shape[1])
+
+        # Translate the labels to 0, 1, 2, ...
+        self._label_names, labels, label_counts = numpy.unique(labels, return_inverse=True, return_counts=True)
+        assert len(self._label_names) > 1
+
+        # Create the index vectors.
+        instances = numpy.array(xrange(data.shape[0]))
+        sample_instances = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
+        _, sample_label_counts = numpy.unique(labels[sample_instances], return_counts=True)
+
+        # Add the root node to the graph and the queue
+        self._graph.add_node(0, sample_begin=0, sample_end=data.shape[0], sample_label_counts=sample_label_counts,
+                             begin=0, end=data.shape[0], label_counts=label_counts)
+        next_node_id = 1
+        qu = collections.deque()
+        qu.append(0)
+
+        # Split each node.
+        while len(qu) > 0:
+            node_id = qu.popleft()
+            node = self._graph.node[node_id]
+            sample_begin = node["sample_begin"]
+            sample_end = node["sample_end"]
+            node_instances = sample_instances[sample_begin:sample_end]
+            label_priors = node["sample_label_counts"]
+
+            # Find the best split.
+            gini_updater = GiniUpdater(index=0, dims=0)
+            split_dims = random.sample(dims, n_rand_dims)
+            for d in split_dims:
+                feats = data[node_instances, d]
+                sorted_instances = numpy.argsort(feats)
+                sorted_labels = labels[node_instances[sorted_instances]]
+                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
+                if split_found:
+                    gini_updater.update(gini, index=index, dim=d)
+
+            # Do not split if not split was found.
+            if not gini_updater.updated():
+                continue
+            best_index = gini_updater["index"]
+            best_dim = gini_updater["dim"]
+
+            # Sort the sample index vector.
+            feats = data[node_instances, best_dim]
+            sorted_instances = numpy.argsort(feats)
+            sample_instances[sample_begin:sample_end] = node_instances[sorted_instances]
+            sample_middle = sample_begin + best_index
+
+            # Update the current node with the split information.
+            node["split_dim"] = best_dim
+            node["split_value"] = (data[sample_instances[sample_middle-1], best_dim] +
+                                   data[sample_instances[sample_middle], best_dim]) / 2.0
+
+            # Get the label count including the out of bags.
+            begin = node["begin"]
+            end = node["end"]
+            node_instances = instances[begin:end]
+            feats = data[node_instances, best_dim]
+            sorted_instances = numpy.argsort(feats)
+            instances[begin:end] = node_instances[sorted_instances]
+            middle = begin + bisect.bisect_right(feats[sorted_instances], node["split_value"])
+
+            num_classes_left, class_count_left = self._get_split_class_count(labels, instances[begin:middle])
+            num_classes_right, class_count_right = self._get_split_class_count(labels, instances[middle:end])
+
+            # Do not split if there are not out of bags in the children.
+            if num_classes_left == 0 or num_classes_right == 0:
+                del node["split_dim"]
+                del node["split_value"]
+                continue
+
+            # Get the label counts of the children.
+            sample_num_classes_left, sample_class_count_left = \
+                self._get_split_class_count(labels, sample_instances[sample_begin:sample_middle])
+            sample_num_classes_right, sample_class_count_right = \
+                self._get_split_class_count(labels, sample_instances[sample_middle:sample_end])
+
+            # Add the children to the graph.
+            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left,
+                                 sample_begin=sample_begin, sample_end=sample_middle,
+                                 sample_label_counts=sample_class_count_left, is_left=True)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right,
+                                 sample_begin=sample_middle, sample_end=sample_end,
+                                 sample_label_counts=sample_class_count_right, is_left=False)
+            self._graph.add_edge(node_id, next_node_id)
+            self._graph.add_edge(node_id, next_node_id+1)
+
+            if sample_num_classes_left > 1 and num_classes_left > 1:
+                qu.append(next_node_id)
+            if sample_num_classes_right > 1 and num_classes_right > 1:
+                qu.append(next_node_id+1)
+            next_node_id += 2
+
+    def _fit(self, data, labels, bootstrap_sampling):
+        """
+        Fit the tree without resampling in each node.
+
+        :param data: the data
+        :param labels: the labels
+        :param bootstrap_sampling: whether to use bootstrap sampling
+        """
+        if bootstrap_sampling:
+            ind = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
+            data = data[ind]
+            labels = labels[ind]
+
+        # Get the number of feature dimensions that are considered in each split.
+        n_rand_dims = self._find_n_rand_dims(data.shape)
+        dims = range(data.shape[1])
+
+        # Translate the labels to 0, 1, 2, ...
+        self._label_names, labels, label_counts = numpy.unique(labels, return_inverse=True, return_counts=True)
+        assert len(self._label_names) > 1
+
+        # Create the index vector.
+        instances = numpy.array(xrange(0, data.shape[0]))
+
+        # Add the root node to the graph and the queue.
+        self._graph.add_node(0, begin=0, end=data.shape[0], label_counts=label_counts)
+        next_node_id = 1
+        qu = collections.deque()
+        qu.append(0)
+
+        # Split each node.
+        while len(qu) > 0:
+            node_id = qu.popleft()
+            node = self._graph.node[node_id]
+            begin = node["begin"]
+            end = node["end"]
+            node_instances = instances[begin:end]
+            label_priors = node["label_counts"]
+
+            # Find the best split.
+            gini_updater = GiniUpdater(index=0, dims=0)
+            split_dims = random.sample(dims, n_rand_dims)
+            for d in split_dims:
+                feats = data[node_instances, d]
+                sorted_instances = numpy.argsort(feats)
+                sorted_labels = labels[node_instances[sorted_instances]]
+                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
+                if split_found:
+                    gini_updater.update(gini, index=index, dim=d)
+
+            # Do not split if no split was found.
+            if not gini_updater.updated():
+                continue
+            best_index = gini_updater["index"]
+            best_dim = gini_updater["dim"]
+
+            # Sort the index vector.
+            feats = data[node_instances, best_dim]
+            sorted_instances = numpy.argsort(feats)
+            instances[begin:end] = node_instances[sorted_instances]
+            middle = begin + best_index
+
+            # Update the current node with the split information.
+            node["split_dim"] = best_dim
+            node["split_value"] = (data[instances[middle-1], best_dim] + data[instances[middle], best_dim]) / 2.0
+
+            # Get the label count of the children.
+            num_classes_left, class_count_left = self._get_split_class_count(labels, instances[begin:middle])
+            num_classes_right, class_count_right = self._get_split_class_count(labels, instances[middle:end])
+
+            # Add the children to the graph.
+            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left, is_left=True)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right, is_left=False)
+            self._graph.add_edge(node_id, next_node_id)
+            self._graph.add_edge(node_id, next_node_id+1)
+
+            if num_classes_left > 1:
+                qu.append(next_node_id)
+            if num_classes_right > 1:
+                qu.append(next_node_id+1)
+            next_node_id += 2
+
+    def fit(self, data, labels):
+        """
+        Train a decision tree.
+
+        :param data: the data
+        :param labels: classes of the data
+        """
+        assert data.shape[0] == labels.shape[0]
+
+        if self._resample_count is None:
+            if self._bootstrap_sampling and self._use_sample_label_count:
+                self._fit(data, labels, True)
+                return
+            elif (not self._bootstrap_sampling) and (not self._use_sample_label_count):
+                self._fit(data, labels, False)
+                return
+            elif self._bootstrap_sampling and (not self._use_sample_label_count):
+                self._fit_use_sample_label_count(data, labels)
+                return
+            else:
+                raise Exception("Unknown parameters (resample_count is None).")
         else:
-            for node_id in self._graph.nodes():
-                node = self._graph.node[node_id]
-                begin = node["begin"]
-                end = node["end"]
-                num_classes, class_counts = self._get_split_class_count(labels, instances[begin:end])
-                node["label_counts"] = class_counts
+            self._fit_resample_count(data, labels)
+            return
+
+        # # GENERIC CASE:
+        #
+        # # Get the number of feature dimensions that are considered in each split.
+        # n_rand_dims = self._find_n_rand_dims(data.shape)
+        # dims = range(data.shape[1])
+        #
+        # # Translate the labels to 0, 1, 2, ...
+        # self._label_names, labels, label_counts = numpy.unique(labels, return_inverse=True, return_counts=True)
+        # assert len(self._label_names) > 1
+        #
+        # # Create the index vector.
+        # instances = numpy.array(xrange(0, data.shape[0]))
+        # if self._bootstrap_sampling:
+        #     sample_instances = numpy.random.random_integers(0, data.shape[0]-1, data.shape[0])
+        #     label_names, label_counts = numpy.unique(labels[sample_instances], return_counts=True)
+        #     if len(self._label_names) != len(label_names):
+        #         raise Exception("The sampling step removed one class completely.")
+        # else:
+        #     sample_instances = numpy.array(instances)
+        #
+        # # Add the root node to the graph and the queue.
+        # self._graph.add_node(0, begin=0, end=data.shape[0],
+        #                      begin_sample=0, end_sample=data.shape[0],
+        #                      sample_label_counts=label_counts)
+        # next_node_id = 1
+        # qu = collections.deque()
+        # qu.append(0)
+        #
+        # # Split each node.
+        # while len(qu) > 0:
+        #     node_id = qu.popleft()
+        #     node = self._graph.node[node_id]
+        #     begin_sample = node["begin_sample"]
+        #     end_sample = node["end_sample"]
+        #     sample_node_instances = sample_instances[begin_sample:end_sample]
+        #     sample_label_priors = node["sample_label_counts"]
+        #
+        #     # Find the best split.
+        #     gini_updater = GiniUpdater(index=0, dim=0)
+        #     split_dims = random.sample(dims, n_rand_dims)
+        #     for d in split_dims:
+        #         feats = data[sample_node_instances, d]
+        #         sorted_instances = numpy.argsort(feats)
+        #         sorted_labels = labels[sample_node_instances[sorted_instances]]
+        #         gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, sample_label_priors)
+        #         if split_found:
+        #             gini_updater.update(gini, index=index, dim=d)
+        #
+        #     # Do not split if no split was found.
+        #     if not gini_updater.updated():
+        #         continue
+        #
+        #     best_index = gini_updater["index"]
+        #     best_dim = gini_updater["dim"]
+        #
+        #     # Sort the sample vector of the current node, so it can be easily split into two children.
+        #     feats = data[sample_node_instances, best_dim]
+        #     sorted_instances = numpy.argsort(feats)
+        #     sample_instances[begin_sample:end_sample] = sample_node_instances[sorted_instances]
+        #
+        #     # Get the label count of the sample of each child.
+        #     middle_sample = begin_sample+best_index
+        #     num_classes_left, class_count_left = \
+        #         self._get_split_class_count(labels, sample_instances[begin_sample:middle_sample])
+        #     num_classes_right, class_count_right = \
+        #         self._get_split_class_count(labels, sample_instances[middle_sample:end_sample])
+        #
+        #     # Update the current node with the split information.
+        #     node["split_dim"] = best_dim
+        #     node["split_value"] = (data[sample_instances[middle_sample-1], best_dim] +
+        #                            data[sample_instances[middle_sample], best_dim]) / 2.0
+        #
+        #     left_properties = dict(begin_sample=begin_sample, end_sample=middle_sample,
+        #                            sample_label_counts=class_count_left, is_left=True)
+        #     right_properties = dict(begin_sample=middle_sample, end_sample=end_sample,
+        #                             sample_label_counts=class_count_right, is_left=False)
+        #
+        #     if not self._use_sample_label_count:
+        #         # Sort the instance vector of the current node, so it can be easily split into two children.
+        #         begin = node["begin"]
+        #         end = node["end"]
+        #         node_instances = instances[begin:end]
+        #         feats = data[node_instances, best_dim]
+        #         sorted_instances = numpy.argsort(feats)
+        #         instances[begin:end] = node_instances[sorted_instances]
+        #         middle = begin + bisect.bisect_right(feats[sorted_instances], node["split_value"])
+        #
+        #         left_properties["begin"] = begin
+        #         left_properties["end"] = middle
+        #         right_properties["begin"] = middle
+        #         right_properties["end"] = end
+        #
+        #     # Add the children to the graph.
+        #     self._graph.add_node(next_node_id, left_properties)
+        #     self._graph.add_node(next_node_id+1, right_properties)
+        #     self._graph.add_edge(node_id, next_node_id)
+        #     self._graph.add_edge(node_id, next_node_id+1)
+        #
+        #     if num_classes_left > 1:
+        #         qu.append(next_node_id)
+        #     if num_classes_right > 1:
+        #         qu.append(next_node_id+1)
+        #     next_node_id += 2
+        # print "created", self._graph.number_of_nodes(), "nodes"
+        #
+        # # Update the label counts in the leaf nodes.
+        # if self._use_sample_label_count:
+        #     for node_id in self._graph.nodes():
+        #         node = self._graph.node[node_id]
+        #         node["label_counts"] = node["sample_label_counts"]
+        # else:
+        #     for node_id in self._graph.nodes():
+        #         node = self._graph.node[node_id]
+        #         begin = node["begin"]
+        #         end = node["end"]
+        #         num_classes, class_counts = self._get_split_class_count(labels, instances[begin:end])
+        #         node["label_counts"] = class_counts
 
     def predict_proba(self, data):
         """

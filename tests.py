@@ -62,7 +62,13 @@ def train_rf(n_trees, n_jobs):
     """
     print "Train a random forest with %d trees." % n_trees
     train_x, train_y, test_x, test_y = load_data([3, 8])
-    rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto", n_jobs=n_jobs)
+    rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto", n_jobs=n_jobs,
+                                             bootstrap_sampling=True, use_sample_label_count=True, resample_count=None,
+                                             # bootstrap_sampling=False, use_sample_label_count=False, resample_count=None,
+                                             # bootstrap_sampling=True, use_sample_label_count=False, resample_count=None,
+                                             # bootstrap_sampling=False, use_sample_label_count=True, resample_count=None,  # does not make sense
+                                             # resample_count=20
+                                             )
 
     start = time.time()
     rf.fit(train_x, train_y)
