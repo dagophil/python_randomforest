@@ -12,10 +12,22 @@ import bisect
 class GiniUpdater(object):
 
     def __init__(self, **attrs):
+        """
+        Create the GiniUpdater and initialize it with the given attributes.
+
+        :param attrs: attribute dict
+        """
         self._attrs = attrs
         self._best_gini = None
 
     def update(self, gini, **attrs):
+        """
+        If called for the first time: Save gini and update the attribute dict.
+        Else: if gini < saved gini, update the gini and the attribute dict.
+
+        :param gini: the gini value
+        :param attrs: attribute dict
+        """
         if self._best_gini is None:
             self._best_gini = gini
             self._attrs.update(attrs)
@@ -25,15 +37,34 @@ class GiniUpdater(object):
                 self._attrs.update(attrs)
 
     def updated(self):
+        """
+        Return True if the gini was updated at least once.
+
+        :return: whether the gini was updated or not
+        """
         return self._best_gini is not None
 
     def __getitem__(self, item):
+        """
+        Return the value of the saved attribute.
+
+        :param item: attribute name
+        :return: attribute value
+        """
         return self._attrs[item]
 
 
 class DecisionTreeClassifier(object):
 
-    def __init__(self, n_rand_dims="all", bootstrap_sampling=False, use_sample_label_count=True):
+    def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True):
+        """
+        Create a DecisionTreeClassifier.
+
+        :param n_rand_dims: how many random features are used in each split ("all": use all features,
+            "auto_reduced": use sqrt(num_features), some integer: use the given number)
+        :param bootstrap_sampling: use bootstrap sampling
+        :param use_sample_label_count: use the label counts of instance sample instead of the true instances
+        """
         self._n_rand_dims = n_rand_dims
         self._graph = networkx.DiGraph()
         self._label_names = None
@@ -260,7 +291,7 @@ class DecisionTreeClassifier(object):
 def train_single_tree(tree, (data_ptr, data_dtype, data_shape), (labels_ptr, labels_dtype, labels_shape),
                       *args, **kwargs):
     """
-    Train a single tree and return it.
+    Train the given tree and return it.
 
     :param tree: the tree
     :param data_ptr: the c_ptr to the data array (can be obtained using arr.ctypes.data)
@@ -292,18 +323,27 @@ def train_single_tree(tree, (data_ptr, data_dtype, data_shape), (labels_ptr, lab
 
 class RandomForestClassifier(object):
 
-    def __init__(self, n_estimators=10, n_rand_dims="auto", n_jobs=None):
+    def __init__(self, n_estimators=10, n_rand_dims="auto", n_jobs=None, **tree_kwargs):
+        """
+        Create a random forest classifier.
+        :param n_estimators: number of trees
+        :param n_rand_dims: how many random features are used in each split ("auto": use sqrt(num_features),
+            "all": use all features, some integer: use the given number)
+        :param n_jobs: number of parallel jobs
+        :param tree_kwargs: additional arguments for the decision tree classifier.
+        """
         if n_rand_dims == "auto":
             tree_rand_dims = "auto_reduced"
         else:
-            tree_rand_dims = "all"
+            tree_rand_dims = n_rand_dims
 
         if n_jobs is None:
             n_jobs = multiprocessing.cpu_count()
         assert n_jobs > 0
 
         self._n_jobs = n_jobs
-        self._trees = [DecisionTreeClassifier(n_rand_dims=tree_rand_dims) for _ in xrange(n_estimators)]
+        self._trees = [DecisionTreeClassifier(n_rand_dims=tree_rand_dims, **tree_kwargs)
+                       for _ in xrange(n_estimators)]
         self._label_names = None
 
     def fit(self, data, labels):
