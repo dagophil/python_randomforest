@@ -56,7 +56,8 @@ class GiniUpdater(object):
 
 class DecisionTreeClassifier(object):
 
-    def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True, resample_count=None):
+    def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True, resample_count=None,
+                 max_depth=None, min_count=None):
         """
         Create a DecisionTreeClassifier.
 
@@ -66,6 +67,8 @@ class DecisionTreeClassifier(object):
         :param use_sample_label_count: use the label counts of instance sample instead of the true instances
         :param resample_count: if this is an integer, create a sample with this many instances in each node and compute
             the best split from there
+        :param max_depth: maximum tree depth
+        :param min_count: do not split a node if its number of instances is <= min_count
         """
         self._n_rand_dims = n_rand_dims
         self._graph = networkx.DiGraph()
@@ -73,6 +76,8 @@ class DecisionTreeClassifier(object):
         self._bootstrap_sampling = bootstrap_sampling
         self._use_sample_label_count = use_sample_label_count
         self._resample_count = resample_count
+        self._max_depth = max_depth
+        self._min_count = min_count
         if (not bootstrap_sampling) and (resample_count is None):
             self._use_sample_label_count = False
         if resample_count is not None:
@@ -117,6 +122,46 @@ class DecisionTreeClassifier(object):
         class_count[classes] = counts
         return len(classes), class_count
 
+    def _is_terminal(self, node_id):
+        """
+        Check the termination criteria on the given node.
+
+        :param node_id: the node id
+        :return: true if a termination criteria is met
+        """
+        n = self._graph.node[node_id]
+        if self._max_depth is not None and "depth" in n:
+            if n["depth"] >= self._max_depth:
+                return True
+        if "label_counts" in n:
+            count = 0
+            for c in n["label_counts"]:
+                if c > 0:
+                    count += 1
+            if count <= 1:
+                return True
+        if "sample_label_counts" in n:
+            count = 0
+            for c in n["sample_label_counts"]:
+                if c > 0:
+                    count += 1
+            if count <= 1:
+                return True
+        if self._min_count is not None and "label_counts" in n:
+            count = 0
+            for c in n["label_counts"]:
+                count += c
+            if count <= self._min_count:
+                return True
+        if self._min_count is not None and "sample_label_counts" in n:
+            count = 0
+            for c in n["sample_label_counts"]:
+                count += c
+            if count <= self._min_count:
+                return True
+
+        return False
+
     def _fit_resample_count(self, data, labels):
         """
         Fit the tree without bootstrap sampling and with resampling in each node.
@@ -138,7 +183,7 @@ class DecisionTreeClassifier(object):
         instances = numpy.array(xrange(0, data.shape[0]))
 
         # Add the root node to the graph and the queue.
-        self._graph.add_node(0, begin=0, end=data.shape[0], label_counts=label_counts)
+        self._graph.add_node(0, begin=0, end=data.shape[0], label_counts=label_counts, depth=0)
         next_node_id = 1
         qu = collections.deque()
         qu.append(0)
@@ -149,6 +194,7 @@ class DecisionTreeClassifier(object):
             node = self._graph.node[node_id]
             begin = node["begin"]
             end = node["end"]
+            depth = node["depth"]
 
             if self._resample_count < end-begin:
                 num_samples = min(self._resample_count, end-begin)
@@ -207,14 +253,17 @@ class DecisionTreeClassifier(object):
                 continue
 
             # Add the children to the graph.
-            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left, is_left=True)
-            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right, is_left=False)
+            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left, is_left=True,
+                                 depth=depth+1)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right, is_left=False,
+                                 depth=depth+1)
             self._graph.add_edge(node_id, next_node_id)
             self._graph.add_edge(node_id, next_node_id+1)
 
-            if num_classes_left > 1:
+            # Check the termination conditions.
+            if not self._is_terminal(next_node_id):
                 qu.append(next_node_id)
-            if num_classes_right > 1:
+            if not self._is_terminal(next_node_id+1):
                 qu.append(next_node_id+1)
             next_node_id += 2
 
@@ -240,7 +289,7 @@ class DecisionTreeClassifier(object):
 
         # Add the root node to the graph and the queue
         self._graph.add_node(0, sample_begin=0, sample_end=data.shape[0], sample_label_counts=sample_label_counts,
-                             begin=0, end=data.shape[0], label_counts=label_counts)
+                             begin=0, end=data.shape[0], label_counts=label_counts, depth=0)
         next_node_id = 1
         qu = collections.deque()
         qu.append(0)
@@ -253,6 +302,7 @@ class DecisionTreeClassifier(object):
             sample_end = node["sample_end"]
             node_instances = sample_instances[sample_begin:sample_end]
             label_priors = node["sample_label_counts"]
+            depth = node["depth"]
 
             # Find the best split.
             gini_updater = GiniUpdater(index=0, dims=0)
@@ -309,16 +359,17 @@ class DecisionTreeClassifier(object):
             # Add the children to the graph.
             self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left,
                                  sample_begin=sample_begin, sample_end=sample_middle,
-                                 sample_label_counts=sample_class_count_left, is_left=True)
+                                 sample_label_counts=sample_class_count_left, is_left=True, depth=depth+1)
             self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right,
                                  sample_begin=sample_middle, sample_end=sample_end,
-                                 sample_label_counts=sample_class_count_right, is_left=False)
+                                 sample_label_counts=sample_class_count_right, is_left=False, depth=depth+1)
             self._graph.add_edge(node_id, next_node_id)
             self._graph.add_edge(node_id, next_node_id+1)
 
-            if sample_num_classes_left > 1 and num_classes_left > 1:
+            # Check the termination conditions.
+            if not self._is_terminal(next_node_id):
                 qu.append(next_node_id)
-            if sample_num_classes_right > 1 and num_classes_right > 1:
+            if not self._is_terminal(next_node_id+1):
                 qu.append(next_node_id+1)
             next_node_id += 2
 
@@ -347,7 +398,7 @@ class DecisionTreeClassifier(object):
         instances = numpy.array(xrange(0, data.shape[0]))
 
         # Add the root node to the graph and the queue.
-        self._graph.add_node(0, begin=0, end=data.shape[0], label_counts=label_counts)
+        self._graph.add_node(0, begin=0, end=data.shape[0], label_counts=label_counts, depth=0)
         next_node_id = 1
         qu = collections.deque()
         qu.append(0)
@@ -360,6 +411,7 @@ class DecisionTreeClassifier(object):
             end = node["end"]
             node_instances = instances[begin:end]
             label_priors = node["label_counts"]
+            depth = node["depth"]
 
             # Find the best split.
             gini_updater = GiniUpdater(index=0, dims=0)
@@ -393,14 +445,17 @@ class DecisionTreeClassifier(object):
             num_classes_right, class_count_right = self._get_split_class_count(labels, instances[middle:end])
 
             # Add the children to the graph.
-            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left, is_left=True)
-            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right, is_left=False)
+            self._graph.add_node(next_node_id, begin=begin, end=middle, label_counts=class_count_left, is_left=True,
+                                 depth=depth+1)
+            self._graph.add_node(next_node_id+1, begin=middle, end=end, label_counts=class_count_right, is_left=False,
+                                 depth=depth+1)
             self._graph.add_edge(node_id, next_node_id)
             self._graph.add_edge(node_id, next_node_id+1)
 
-            if num_classes_left > 1:
+            # Check the termination conditions.
+            if not self._is_terminal(next_node_id):
                 qu.append(next_node_id)
-            if num_classes_right > 1:
+            if not self._is_terminal(next_node_id+1):
                 qu.append(next_node_id+1)
             next_node_id += 2
 

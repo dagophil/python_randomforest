@@ -67,7 +67,7 @@ def train_rf(n_trees, n_jobs):
                                              # bootstrap_sampling=False, use_sample_label_count=False, resample_count=None,
                                              # bootstrap_sampling=True, use_sample_label_count=False, resample_count=None,
                                              # bootstrap_sampling=False, use_sample_label_count=True, resample_count=None,  # does not make sense
-                                             # resample_count=20
+                                             # resample_count=20,
                                              )
 
     start = time.time()
