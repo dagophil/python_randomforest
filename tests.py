@@ -6,6 +6,32 @@ import argparse
 import time
 
 
+def load_neuro_data():
+    """
+    Load the neuro dataset.
+
+    :return: train_x, train_y, test_x, test_y
+    """
+    # Load the data.
+    train_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/train/ffeat_br_segid0.h5", "ffeat_br")
+    train_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/train/gt_face_segid0.h5", "gt_face")[:, 0])
+    test_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/test/ffeat_br_segid0.h5", "ffeat_br")
+    test_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/test/gt_face_segid0.h5", "gt_face")[:, 0])
+    assert train_x.shape[0] == train_y.shape[0]
+    assert test_x.shape[0] == test_y.shape[0]
+    assert train_x.shape[1] == test_x.shape[1]
+
+    # Remove NaN values.
+    to_remove = numpy.where(numpy.isnan(train_x))
+    train_x = numpy.delete(train_x, to_remove, axis=0)
+    train_y = numpy.delete(train_y, to_remove)
+    to_remove = numpy.where(numpy.isnan(test_x))
+    test_x = numpy.delete(test_x, to_remove, axis=0)
+    test_y = numpy.delete(test_y, to_remove)
+
+    return train_x, train_y, test_x, test_y
+
+
 def load_data(labels=None):
     """
     Load the data sets.
@@ -61,7 +87,24 @@ def train_rf(n_trees, n_jobs):
     :param n_jobs: number of jobs
     """
     print "Train a random forest with %d trees." % n_trees
+
     train_x, train_y, test_x, test_y = load_data([3, 8])
+    # train_x, train_y, test_x, test_y = load_neuro_data()
+
+    # import sklearn.ensemble
+    # rf = sklearn.ensemble.RandomForestClassifier(n_estimators=8, n_jobs=8)
+    # rf.fit(train_x, train_y)
+    # pred = rf.predict(test_x)
+    # count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+    # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+    #
+    # rf = vigra.learning.RandomForest(treeCount=8)
+    # train_yy = train_y.reshape((train_y.shape[0], 1))
+    # rf.learnRF(train_x, train_yy)
+    # pred = rf.predictLabels(test_x)
+    # count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+    # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+
     rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto", n_jobs=n_jobs,
                                              bootstrap_sampling=True, use_sample_label_count=True, resample_count=None,
                                              # bootstrap_sampling=False, use_sample_label_count=False, resample_count=None,

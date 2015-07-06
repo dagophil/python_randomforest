@@ -468,6 +468,9 @@ class DecisionTreeClassifier(object):
         """
         assert data.shape[0] == labels.shape[0]
 
+        if len(numpy.nonzero(numpy.isnan(data))[0]) > 0 or len(numpy.nonzero(numpy.isnan(labels))[0]) > 0:
+            raise Exception("The input array contains NaNs")
+
         if self._resample_count is None:
             if self._bootstrap_sampling and self._use_sample_label_count:
                 self._fit(data, labels, True)
@@ -491,6 +494,9 @@ class DecisionTreeClassifier(object):
         :param data: the data
         :return: class probabilities of the data
         """
+        if len(numpy.nonzero(numpy.isnan(data))[0]) > 0:
+            raise Exception("The input array contains NaNs")
+
         # Transform the graph information into arrays.
         num_nodes = self._graph.number_of_nodes()
         node_children = -numpy.ones((num_nodes, 2), numpy.int_)
@@ -549,6 +555,10 @@ def train_single_tree(tree, (data_ptr, data_dtype, data_shape), (labels_ptr, lab
     :param labels_shape: the shape of the labels array
     :return: the (trained) tree
     """
+    # Seed the numpy random number generator.
+    r = random.randint(0, numpy.iinfo(numpy.uint32).max-1)
+    numpy.random.seed([r, multiprocessing.current_process().pid])
+
     # Create the numpy array from data_ptr.
     data_size = 1
     for s in data_shape:
