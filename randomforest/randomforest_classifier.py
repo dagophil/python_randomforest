@@ -3,10 +3,10 @@ import networkx
 import collections
 import random
 import randomforest_functions
-import time
 import concurrent.futures
 import multiprocessing
 import bisect
+import json
 
 
 class GiniUpdater(object):
@@ -83,6 +83,81 @@ class DecisionTreeClassifier(object):
         if resample_count is not None:
             self._use_sample_label_count = False
             self._bootstrap_sampling = False
+
+    def to_string(self):
+        """
+        Return a string representation of the decision tree classifier.
+
+        :return: string
+        """
+        # Get the dict that can be given to the constructor.
+        constructor_dict = {"n_rand_dims": self._n_rand_dims,
+                            "bootstrap_sampling": self._bootstrap_sampling,
+                            "use_sample_label_count": self._use_sample_label_count,
+                            "resample_count": self._resample_count,
+                            "max_depth": self._max_depth,
+                            "min_count": self._min_count}
+
+        # Get the graph information as numpy arrays.
+        arrs = self._get_arrays()
+        arrs_list = [(a.tolist(), a.dtype.str) for a in arrs]
+
+        # Create the dict to be saved.
+        d = {"constructor_dict": constructor_dict,
+             "graph": arrs_list,
+             "label_names": (self._label_names.tolist(), self._label_names.dtype.str)}
+
+        return json.dumps(d)
+
+    @staticmethod
+    def from_string(s):
+        """
+        Create a decision tree classifier using the given string.
+
+        :param s: string representation of decision tree
+        :return: decision tree classifier
+        """
+        # Create the tree with the given options.
+        d = json.loads(s)
+        constructor_dict = d["constructor_dict"]
+        tree = DecisionTreeClassifier(**constructor_dict)
+
+        # Set the label names.
+        label_names_list = d["label_names"][0]
+        label_names_dtype = numpy.dtype(d["label_names"][1])
+        tree._label_names = numpy.array(label_names_list, dtype=label_names_dtype)
+
+        # Create the graph.
+        node_children, split_dims, split_values, label_count = [numpy.array(a[0], dtype=numpy.dtype(a[1]))
+                                                                for a in d["graph"]]
+        qu = collections.deque()
+        qu.append((None, 0))
+        while len(qu) > 0:
+            # Add the node to the graph.
+            is_left, node_id = qu.popleft()
+            tree._graph.add_node(node_id, label_counts=label_count[node_id, :])
+            node = tree._graph.node[node_id]
+
+            # Add split information.
+            if split_dims[node_id] >= 0:
+                node["split_dim"] = split_dims[node_id]
+                node["split_value"] = split_values[node_id]
+
+            # Add is_left information.
+            if is_left is not None:
+                node["is_left"] = is_left
+
+            # Add the children to the graph and the queue.
+            id_left = node_children[node_id, 0]
+            if id_left >= 0:
+                qu.append((True, id_left))
+                tree._graph.add_edge(node_id, id_left)
+            id_right = node_children[node_id, 1]
+            if id_right >= 0:
+                qu.append((False, id_right))
+                tree._graph.add_edge(node_id, id_right)
+
+        return tree
 
     def classes(self):
         """
@@ -487,20 +562,15 @@ class DecisionTreeClassifier(object):
             self._fit_resample_count(data, labels)
             return
 
-    def predict_proba(self, data):
+    def _get_arrays(self):
         """
-        Predict the class probabilities of the data.
+        Return the children, the split dimensions, the split values and the label counts of each node as numpy arrays.
 
-        :param data: the data
-        :return: class probabilities of the data
+        :return: node_children, split_dimensions, split_values, label_count
         """
-        if len(numpy.nonzero(numpy.isnan(data))[0]) > 0:
-            raise Exception("The input array contains NaNs")
-
-        # Transform the graph information into arrays.
         num_nodes = self._graph.number_of_nodes()
         node_children = -numpy.ones((num_nodes, 2), numpy.int_)
-        node_split_dims = numpy.zeros((num_nodes,), numpy.int_)
+        node_split_dims = -numpy.ones((num_nodes,), numpy.int_)
         node_split_values = numpy.zeros((num_nodes,), numpy.float_)
         node_label_count = numpy.zeros((num_nodes, len(self._label_names)), numpy.int_)
         for node_id in self._graph.nodes():
@@ -523,6 +593,20 @@ class DecisionTreeClassifier(object):
                 node_children[node_id, 1] = n1_id
                 node_split_dims[node_id] = node["split_dim"]
                 node_split_values[node_id] = node["split_value"]
+        return node_children, node_split_dims, node_split_values, node_label_count
+
+    def predict_proba(self, data):
+        """
+        Predict the class probabilities of the data.
+
+        :param data: the data
+        :return: class probabilities of the data
+        """
+        if len(numpy.nonzero(numpy.isnan(data))[0]) > 0:
+            raise Exception("The input array contains NaNs")
+
+        # Get the arrays with the node information.
+        node_children, node_split_dims, node_split_values, node_label_count = self._get_arrays()
 
         # Call the cython probability function.
         probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, node_split_dims,
@@ -650,3 +734,29 @@ class RandomForestClassifier(object):
         probs = self.predict_proba(data)
         pred = numpy.argmax(probs, axis=1)
         return self._label_names[pred]
+
+    def to_string(self):
+        """
+        Return a string that contains all information of the random forest classifier.
+
+        :return: string with random forest information
+        """
+        d = {"trees": [t.to_string() for t in self._trees],
+             "n_jobs": self._n_jobs,
+             "label_names": (self._label_names.tolist(), self._label_names.dtype.str)}
+        return json.dumps(d)
+
+    @staticmethod
+    def from_string(s):
+        """
+        Create a random forest classifier using the given string.
+
+        :param s: string with random forest information
+        :return: random forest classifier
+        """
+        d = json.loads(s)
+        trees = [DecisionTreeClassifier.from_string(s) for s in d["trees"]]
+        rf = RandomForestClassifier(n_estimators=0, n_jobs=d["n_jobs"])
+        rf._trees = trees
+        rf._label_names = numpy.array(d["label_names"][0], dtype=numpy.dtype(d["label_names"][1]))
+        return rf
