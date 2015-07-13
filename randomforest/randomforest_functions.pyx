@@ -65,24 +65,8 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
 
 @cython.boundscheck(False)
 @cython.cdivision(True)
-def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
-                  numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                  numpy.ndarray[INT_t, ndim=2] label_count):
-    """
-    Predict the class probabilities of the given data.
-
-    :param data: the data
-    :param children: child information of the graph
-    :param split_dims: node split dimensions
-    :param split_values: node split values
-    :param label_count: label counts in each node
-    :return: class probabilities of the data
-    """
-    assert data.dtype == FLOAT and children.dtype == INT and split_dims.dtype == INT and split_values.dtype == FLOAT \
-           and label_count.dtype == INT
-
-    cdef numpy.ndarray[FLOAT_t, ndim=2] probs = numpy.zeros((data.shape[0], label_count.shape[1]), dtype=FLOAT)
-    cdef numpy.ndarray[INT_t, ndim=1] label_sums = numpy.zeros((label_count.shape[0],), dtype=INT)
+cdef predict_proba_impl(FLOAT_t[:, :] data, INT_t[:, :] children, INT_t[:] split_dims, FLOAT_t[:] split_values,
+                  INT_t[:, :] label_count, FLOAT_t[:, :] probs, INT_t[:] label_sums):
 
     cdef INT_t i, j, node
     cdef FLOAT_t s
@@ -102,4 +86,19 @@ def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim
         for j in xrange(label_count.shape[1]):
             probs[i, j] = label_count[node, j] / s
 
+def predict_proba(FLOAT_t[:, :] data, INT_t[:, :] children, INT_t[:] split_dims, FLOAT_t[:] split_values,
+                  INT_t[:, :] label_count):
+    """
+    Predict the class probabilities of the given data.
+
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :param label_count: label counts in each node
+    :return: class probabilities of the data
+    """
+    cdef FLOAT_t[:, :] probs = numpy.zeros((data.shape[0], label_count.shape[1]), dtype=FLOAT)
+    cdef INT_t[:] label_sums = numpy.zeros((label_count.shape[0],), dtype=INT)
+    predict_proba_impl(data, children, split_dims, split_values, label_count, probs, label_sums)
     return probs

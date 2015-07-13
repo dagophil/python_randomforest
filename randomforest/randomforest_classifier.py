@@ -7,6 +7,7 @@ import concurrent.futures
 import multiprocessing
 import bisect
 import json
+from timer import Timer
 
 
 class GiniUpdater(object):
@@ -602,7 +603,7 @@ class DecisionTreeClassifier(object):
         :param data: the data
         :return: class probabilities of the data
         """
-        if len(numpy.nonzero(numpy.isnan(data))[0]) > 0:
+        if numpy.isnan(numpy.sum(data)):
             raise Exception("The input array contains NaNs")
 
         # Get the arrays with the node information.
