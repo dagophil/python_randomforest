@@ -1,5 +1,7 @@
 *.pyd
 *.pyc
+*~
+sven/
 build/
 randomforest/randomforest_functions.c
 randomforest/randomforest_functions.so
