@@ -131,6 +131,8 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
         with open(filename, "r") as f:
             rf_str = f.read()
         rf = randomforest.RandomForestClassifier.from_string(rf_str)
+        if n_jobs is not None:
+            rf._n_jobs = n_jobs
     else:
         print "Training random forest with %d trees." % n_trees
         rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto", n_jobs=n_jobs,
