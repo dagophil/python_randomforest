@@ -6,6 +6,24 @@ import argparse
 import time
 
 
+class Timer(object):
+
+    def __init__(self, msg=None):
+        if msg is None:
+            msg = "took %f seconds"
+        self.msg = msg
+        self._start = None
+        self._stop = None
+
+    def __enter__(self):
+        self._start = time.time()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._stop = time.time()
+        print self.msg % (self._stop - self._start)
+
+
 def load_neuro_data():
     """
     Load the neuro dataset.
@@ -65,18 +83,31 @@ def train_dt():
     train_x, train_y, test_x, test_y = load_data([3, 8])
     dtree = randomforest.DecisionTreeClassifier(n_rand_dims="auto_reduced")
 
-    start = time.time()
-    dtree.fit(train_x, train_y)
-    end = time.time()
-    print "Training took %.03f seconds." % (end-start)
+    with Timer("Training took %.03f seconds."):
+        dtree.fit(train_x, train_y)
 
-    start = time.time()
-    pred = dtree.predict(test_x)
-    end = time.time()
-    print "Prediction took %.03f seconds." % (end-start)
+    with Timer("Prediction took %.03f seconds."):
+        pred = dtree.predict(test_x)
 
     count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
     print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+
+
+# # Train sklearn random forest.
+# import sklearn.ensemble
+# rf = sklearn.ensemble.RandomForestClassifier(n_estimators=8, n_jobs=8)
+# rf.fit(train_x, train_y)
+# pred = rf.predict(test_x)
+# count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+# print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+
+# # Train vigra random forest.
+# rf = vigra.learning.RandomForest(treeCount=8)
+# train_yy = train_y.reshape((train_y.shape[0], 1))
+# rf.learnRF(train_x, train_yy)
+# pred = rf.predictLabels(test_x)
+# count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+# print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
 def train_rf(n_trees, n_jobs):
@@ -91,20 +122,6 @@ def train_rf(n_trees, n_jobs):
     train_x, train_y, test_x, test_y = load_data([3, 8])
     # train_x, train_y, test_x, test_y = load_neuro_data()
 
-    # import sklearn.ensemble
-    # rf = sklearn.ensemble.RandomForestClassifier(n_estimators=8, n_jobs=8)
-    # rf.fit(train_x, train_y)
-    # pred = rf.predict(test_x)
-    # count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
-    # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
-    #
-    # rf = vigra.learning.RandomForest(treeCount=8)
-    # train_yy = train_y.reshape((train_y.shape[0], 1))
-    # rf.learnRF(train_x, train_yy)
-    # pred = rf.predictLabels(test_x)
-    # count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
-    # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
-
     rf = randomforest.RandomForestClassifier(n_estimators=n_trees, n_rand_dims="auto", n_jobs=n_jobs,
                                              bootstrap_sampling=True, use_sample_label_count=True, resample_count=None,
                                              # bootstrap_sampling=False, use_sample_label_count=False, resample_count=None,
@@ -113,15 +130,11 @@ def train_rf(n_trees, n_jobs):
                                              # resample_count=20,
                                              )
 
-    start = time.time()
-    rf.fit(train_x, train_y)
-    end = time.time()
-    print "Training took %.03f seconds." % (end-start)
+    with Timer("Training took %.03f seconds"):
+        rf.fit(train_x, train_y)
 
-    start = time.time()
-    pred = rf.predict(test_x)
-    end = time.time()
-    print "Prediction took %.03f seconds." % (end-start)
+    with Timer("Prediction took %.03f seconds."):
+        pred = rf.predict(test_x)
 
     count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
     print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
