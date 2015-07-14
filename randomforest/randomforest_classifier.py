@@ -8,6 +8,7 @@ import multiprocessing
 import bisect
 import json
 from timer import Timer
+import ctypes
 
 
 class GiniUpdater(object):
@@ -626,64 +627,41 @@ class DecisionTreeClassifier(object):
         return self._label_names[pred]
 
 
-def train_single_tree(tree, (data_ptr, data_dtype, data_shape), (labels_ptr, labels_dtype, labels_shape),
-                      *args, **kwargs):
+def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
     """
     Train the given tree and return it.
 
-    :param tree: the tree
-    :param data_ptr: the c_ptr to the data array (can be obtained using arr.ctypes.data)
-    :param data_dtype: the dtype of the data array
-    :param data_shape: the shape of the data array
-    :param labels_ptr: the c_ptr to the labels array (can be obtained using arr.ctypes.data)
-    :param labels_dtype: the dtype of the labels array
-    :param labels_shape: the shape of the labels array
+    :param tree_id: id of the tree
+    :param data_id: id of the data
+    :param labels_id: id of the labels
     :return: the (trained) tree
     """
     # Seed the numpy random number generator.
+    # This is necessary when using multiprocessing, otherwise the processes get the same seed.
     r = random.randint(0, numpy.iinfo(numpy.uint32).max-1)
     numpy.random.seed([r, multiprocessing.current_process().pid])
 
-    # Create the numpy array from data_ptr.
-    data_size = 1
-    for s in data_shape:
-        data_size *= s
-    data_bfr = numpy.core.multiarray.int_asbuffer(data_ptr, data_size * data_dtype.itemsize)
-    data = numpy.frombuffer(data_bfr, data_dtype).reshape(data_shape)
-
-    # Create the labels array from labels_ptr.
-    labels_size = 1
-    for s in labels_shape:
-        labels_size *= s
-    labels_bfr = numpy.core.multiarray.int_asbuffer(labels_ptr, labels_size * labels_dtype.itemsize)
-    labels = numpy.frombuffer(labels_bfr, labels_dtype).reshape(labels_shape)
+    # Convert the pointers to objects.
+    tree = ctypes.cast(tree_id, ctypes.py_object).value
+    data = ctypes.cast(data_id, ctypes.py_object).value
+    labels = ctypes.cast(labels_id, ctypes.py_object).value
 
     # Call the tree.fit function.
     tree.fit(data, labels, *args, **kwargs)
     return tree
 
 
-def predict_proba_single_tree(qu_in, qu_out, (data_ptr, data_dtype, data_shape)):
+def predict_proba_single_tree(tree_id, data_id):
     """
     Predict using the given tree and return the probabilities.
-    """
-    # Create the numpy array from data_ptr.
-    data_size = 1
-    for s in data_shape:
-        data_size *= s
-    data_bfr = numpy.core.multiarray.int_asbuffer(data_ptr, data_size * data_dtype.itemsize)
-    data = numpy.frombuffer(data_bfr, data_dtype).reshape(data_shape)
 
-    while True:
-        item = qu_in.get()
-        if item is None:
-            print "got None item"
-            break
-        i, tree = item
-        print "predicting tree", i
-        probs = tree.predict_proba(data)
-        print "done predicting tree", i
-        qu_out.put((i, probs))
+    :param tree_id: id of the tree
+    :param data_id: id of the data
+    :return: class probabilities
+    """
+    tree = ctypes.cast(tree_id, ctypes.py_object).value
+    data = ctypes.cast(data_id, ctypes.py_object).value
+    return tree.predict_proba(data)
 
 
 class RandomForestClassifier(object):
@@ -723,12 +701,11 @@ class RandomForestClassifier(object):
             for tree in self._trees:
                 tree.fit(data, labels)
         else:
-            data_info = (data.ctypes.data, data.dtype, data.shape)
-            labels_info = (labels.ctypes.data, labels.dtype, labels.shape)
+            data_id = id(data)
+            labels_id = id(labels)
             with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
-                futures = []
-                for i, tree in enumerate(self._trees):
-                    futures.append((i, executor.submit(train_single_tree, tree, data_info, labels_info)))
+                futures = [(i, executor.submit(train_single_tree, id(tree), data_id, labels_id))
+                           for i, tree in enumerate(self._trees)]
                 for i, future in futures:
                     self._trees[i] = future.result()
 
@@ -749,27 +726,12 @@ class RandomForestClassifier(object):
             for i, tree in enumerate(self._trees):
                 probs[i, :, :] = tree.predict_proba(data)
         else:
-            print "else... n_jobs:", n_jobs
-            data_info = (data.ctypes.data, data.dtype, data.shape)
-
-            qu_in = multiprocessing.Queue()
-            for i, tree in enumerate(self._trees):
-                qu_in.put((i, tree))
-            for _ in xrange(n_jobs):
-                qu_in.put(None)
-            qu_out = multiprocessing.Queue()
-            procs = [multiprocessing.Process(target=predict_proba_single_tree, args=(qu_in, qu_out, data_info))
-                     for _ in xrange(n_jobs)]
-            for p in procs:
-                p.start()
-            results = []
-            for _ in xrange(len(self._trees)):
-                results.append(qu_out.get())
-            for p in procs:
-                p.join()
-            for i, probs_slice in results:
-                probs[i, :, :] = probs_slice
-
+            data_id = id(data)
+            with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
+                futures = [(i, executor.submit(predict_proba_single_tree, id(tree), data_id))
+                           for i, tree in enumerate(self._trees)]
+                for i, future in futures:
+                    probs[i, :, :] = future.result()
         return numpy.mean(probs, axis=0)
 
     def predict(self, data):

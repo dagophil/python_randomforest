@@ -5,6 +5,7 @@ import randomforest
 import argparse
 from randomforest.timer import Timer
 import os
+import platform
 
 
 def load_neuro_data():
@@ -180,6 +181,10 @@ def parse_command_line():
         args.rf = True
     if args.n_jobs <= 0:
         args.n_jobs = None
+    if args.n_jobs is None and platform.python_implementation() != "CPython":
+        raise Exception("It seems that the current interpreter does not use CPython. This is a problem, since the "
+                        "random forest parallelization currently relies on a CPython implementation detail. Let me "
+                        "know, if this is a problem for you.")
 
     if args.save or args.load:
         assert args.filename is not None
