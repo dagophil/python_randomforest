@@ -7,6 +7,7 @@ import concurrent.futures
 import multiprocessing
 import bisect
 import json
+from timer import Timer
 
 
 class GiniUpdater(object):
@@ -602,7 +603,7 @@ class DecisionTreeClassifier(object):
         :param data: the data
         :return: class probabilities of the data
         """
-        if len(numpy.nonzero(numpy.isnan(data))[0]) > 0:
+        if numpy.isnan(numpy.sum(data)):
             raise Exception("The input array contains NaNs")
 
         # Get the arrays with the node information.
@@ -611,7 +612,7 @@ class DecisionTreeClassifier(object):
         # Call the cython probability function.
         probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, node_split_dims,
                                                      node_split_values, node_label_count)
-        return probs
+        return numpy.array(probs)
 
     def predict(self, data):
         """
@@ -660,6 +661,29 @@ def train_single_tree(tree, (data_ptr, data_dtype, data_shape), (labels_ptr, lab
     # Call the tree.fit function.
     tree.fit(data, labels, *args, **kwargs)
     return tree
+
+
+def predict_proba_single_tree(qu_in, qu_out, (data_ptr, data_dtype, data_shape)):
+    """
+    Predict using the given tree and return the probabilities.
+    """
+    # Create the numpy array from data_ptr.
+    data_size = 1
+    for s in data_shape:
+        data_size *= s
+    data_bfr = numpy.core.multiarray.int_asbuffer(data_ptr, data_size * data_dtype.itemsize)
+    data = numpy.frombuffer(data_bfr, data_dtype).reshape(data_shape)
+
+    while True:
+        item = qu_in.get()
+        if item is None:
+            print "got None item"
+            break
+        i, tree = item
+        print "predicting tree", i
+        probs = tree.predict_proba(data)
+        print "done predicting tree", i
+        qu_out.put((i, probs))
 
 
 class RandomForestClassifier(object):
@@ -720,8 +744,32 @@ class RandomForestClassifier(object):
         :return: class probabilities of the data
         """
         probs = numpy.zeros((len(self._trees), data.shape[0], len(self._label_names)), dtype=numpy.float_)
-        for i, tree in enumerate(self._trees):
-            probs[i, :, :] = tree.predict_proba(data)
+        n_jobs = min(self._n_jobs, len(self._trees))
+        if n_jobs == 1:
+            for i, tree in enumerate(self._trees):
+                probs[i, :, :] = tree.predict_proba(data)
+        else:
+            print "else... n_jobs:", n_jobs
+            data_info = (data.ctypes.data, data.dtype, data.shape)
+
+            qu_in = multiprocessing.Queue()
+            for i, tree in enumerate(self._trees):
+                qu_in.put((i, tree))
+            for _ in xrange(n_jobs):
+                qu_in.put(None)
+            qu_out = multiprocessing.Queue()
+            procs = [multiprocessing.Process(target=predict_proba_single_tree, args=(qu_in, qu_out, data_info))
+                     for _ in xrange(n_jobs)]
+            for p in procs:
+                p.start()
+            results = []
+            for _ in xrange(len(self._trees)):
+                results.append(qu_out.get())
+            for p in procs:
+                p.join()
+            for i, probs_slice in results:
+                probs[i, :, :] = probs_slice
+
         return numpy.mean(probs, axis=0)
 
     def predict(self, data):
