@@ -9,6 +9,7 @@ import bisect
 import json
 from timer import Timer
 import ctypes
+import platform
 
 
 class GiniUpdater(object):
@@ -701,6 +702,8 @@ class RandomForestClassifier(object):
             for tree in self._trees:
                 tree.fit(data, labels)
         else:
+            if platform.python_implementation() != "CPython":
+                raise Exception("You have to use CPython.")
             data_id = id(data)
             labels_id = id(labels)
             with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
@@ -726,6 +729,8 @@ class RandomForestClassifier(object):
             for i, tree in enumerate(self._trees):
                 probs[i, :, :] = tree.predict_proba(data)
         else:
+            if platform.python_implementation() != "CPython":
+                raise Exception("You have to use CPython.")
             data_id = id(data)
             with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
                 futures = [(i, executor.submit(predict_proba_single_tree, id(tree), data_id))
