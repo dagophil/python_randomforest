@@ -86,6 +86,7 @@ class DecisionTreeClassifier(object):
         if resample_count is not None:
             self._use_sample_label_count = False
             self._bootstrap_sampling = False
+        self._depth = 0
 
     def to_string(self):
         """
@@ -208,9 +209,11 @@ class DecisionTreeClassifier(object):
         :return: true if a termination criteria is met
         """
         n = self._graph.node[node_id]
-        if self._max_depth is not None and "depth" in n:
-            if n["depth"] >= self._max_depth:
-                return True
+        if "depth" in n:
+            self._depth = max(self._depth, n["depth"])
+            if self._max_depth is not None:
+                if n["depth"] >= self._max_depth:
+                    return True
         if "label_counts" in n:
             count = 0
             for c in n["label_counts"]:
