@@ -10,6 +10,7 @@ import json
 from timer import Timer
 import ctypes
 import platform
+import scipy.sparse
 
 
 class GiniUpdater(object):
@@ -170,6 +171,14 @@ class DecisionTreeClassifier(object):
         :return: the classes
         """
         return numpy.array(self._label_names)
+
+    def num_nodes(self):
+        """
+        Return the number of nodes in the graph.
+
+        :return: number of nodes in the graph
+        """
+        return self._graph.number_of_nodes()
 
     def _find_n_rand_dims(self, sh):
         """
@@ -651,9 +660,22 @@ class DecisionTreeClassifier(object):
         """
         # Get the arrays with the node information.
         node_children, split_dims, split_values, label_count = self._get_arrays()
-        indices = randomforest_functions.node_ids(data.astype(numpy.float_), node_children, split_dims,
-                                                  split_values, self._depth)
+        indices = randomforest_functions.node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
+                                                         split_values, self._depth)
         return indices
+
+    def weighted_index_vectors(self, data):
+        """
+        Return the weighted node index vector of each instance in data.
+
+        :param data: the data
+        :return: weighted node index vector
+        """
+        # Get the arrays with the node information.
+        node_children, split_dims, split_values, label_count = self._get_arrays()
+        weights = randomforest_functions.weighted_node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
+                                                                  split_values, label_count, self._depth)
+        return weights
 
 
 def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
@@ -785,6 +807,24 @@ class RandomForestClassifier(object):
         probs = self.predict_proba(data)
         pred = numpy.argmax(probs, axis=1)
         return self._label_names[pred]
+
+    def node_index_vectors(self, data):
+        """
+        Return the node index vector of each instance in data.
+
+        :param data: the data
+        :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
+        """
+        return scipy.sparse.hstack([tree.node_index_vectors(data) for tree in self._trees])
+
+    def weighted_index_vectors(self, data):
+        """
+        Return the weighted index vector of each instance in data.
+
+        :param data: the data
+        :return: weighted index vectors
+        """
+        return scipy.sparse.hstack([tree.weighted_index_vectors(data) for tree in self._trees])
 
     def to_string(self):
         """

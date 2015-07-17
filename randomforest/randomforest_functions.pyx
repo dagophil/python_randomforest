@@ -91,67 +91,6 @@ def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] c
     return indices
 
 
-def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
-                    numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                    INT_t tree_depth):
-    """
-    Return the node index vector of each instance in data as a sparse matrix.
-
-    :param data: the data
-    :param children: child information of the graph
-    :param split_dims: node split dimensions
-    :param split_values: node split values
-    :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
-    :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
-    """
-    cdef INT_t count_nonzero = data.shape[0] * tree_depth
-    cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
-    cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
-    cdef numpy.ndarray[UINT8_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=UINT8)  # this should be boolean, but cython does not support bool arrays
-    cdef INT_t i, next, node
-
-    next = 0
-    for i in xrange(data.shape[0]):
-        node = 0
-        while children[node, 0] >= 0:
-            if data[i, split_dims[node]] < split_values[node]:
-                node = children[node, 0]
-            else:
-                node = children[node, 1]
-            rows[next] = i
-            cols[next] = node
-            vals[next] = 1
-            next += 1
-
-    return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
-
-
-def node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
-             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values, INT_t tree_depth):
-    """
-    Return the node index vector of each instance in data.
-
-    :param data: the data
-    :param children: child information of the graph
-    :param split_dims: node split dimensions
-    :param split_values: node split values
-    :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
-    :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
-    """
-    cdef numpy.ndarray[UINT8_t, ndim=2] indices = numpy.zeros((data.shape[0], children.shape[0]), dtype=UINT8)
-    cdef INT_t i, node
-
-    for i in xrange(data.shape[0]):
-        node = 0
-        while children[node, 0] >= 0:
-            if data[i, split_dims[node]] < split_values[node]:
-                node = children[node, 0]
-            else:
-                node = children[node, 1]
-            indices[i, node] = 1
-    return indices
-
-
 def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                   numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
                   numpy.ndarray[INT_t, ndim=2] label_count):
@@ -183,3 +122,157 @@ def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim
             probs[i, j] = label_count[node, j] / s
 
     return probs
+
+
+def node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values):
+    """
+    Return the node index vector of each instance in data.
+
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
+    """
+    cdef numpy.ndarray[UINT8_t, ndim=2] indices = numpy.zeros((data.shape[0], children.shape[0]), dtype=UINT8)
+    cdef INT_t i, node
+
+    for i in xrange(data.shape[0]):
+        node = 0
+        indices[i, node] = 1
+        while children[node, 0] >= 0:
+            if data[i, split_dims[node]] < split_values[node]:
+                node = children[node, 0]
+            else:
+                node = children[node, 1]
+            indices[i, node] = 1
+    return indices
+
+
+def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+                    numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
+                    INT_t tree_depth):
+    """
+    Return the node index vector of each instance in data as a sparse matrix.
+
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
+    :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
+    """
+    cdef INT_t count_nonzero = data.shape[0] * tree_depth
+    cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
+    cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
+    cdef numpy.ndarray[UINT8_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=UINT8)  # this should be boolean, but cython does not support bool arrays
+    cdef INT_t i, next, node
+
+    next = 0
+    for i in xrange(data.shape[0]):
+        node = 0
+        rows[next] = i
+        rows[next] = node
+        rows[next] = 1
+        next += 1
+        while children[node, 0] >= 0:
+            if data[i, split_dims[node]] < split_values[node]:
+                node = children[node, 0]
+            else:
+                node = children[node, 1]
+            rows[next] = i
+            cols[next] = node
+            vals[next] = 1
+            next += 1
+
+    return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
+
+
+def weighted_node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+                      numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
+                      numpy.ndarray[INT_t, ndim=2] label_count):
+    """
+    Return the weighted node index vector of each instance in data.
+
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :param label_count: label counts in each node
+    :return: weighted node index vector
+    """
+    assert label_count.shape[1] == 2
+    assert label_count.shape[0] == children.shape[0]
+
+    cdef numpy.ndarray[FLOAT_t, ndim=2] weights = numpy.zeros((data.shape[0], children.shape[0]), dtype=FLOAT)
+    cdef INT_t i, node, next_node
+    cdef FLOAT_t s
+
+    cdef numpy.ndarray[FLOAT_t, ndim=1] node_weights = numpy.zeros((label_count.shape[0]), dtype=FLOAT)
+    for i in xrange(label_count.shape[0]):
+        s = float(label_count[i, 0] + label_count[i, 1])
+        node_weights[i] = label_count[i, 1] / s
+
+    for i in xrange(data.shape[0]):
+        node = 0
+        weights[i, node] = node_weights[node]
+        while children[node, 0] >= 0:
+            if data[i, split_dims[node]] < split_values[node]:
+                next_node = children[node, 0]
+            else:
+                next_node = children[node, 1]
+            weights[i, next_node] = node_weights[next_node] - node_weights[node]
+            node = next_node
+
+    return weights
+
+
+def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+                             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
+                             numpy.ndarray[INT_t, ndim=2] label_count, INT_t tree_depth):
+    """
+    Return the weighted node index vector of each instance in data as a sparse matrix.
+
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :param label_count: label counts in each node
+    :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
+    :return: weighted node index vector
+    """
+    assert label_count.shape[1] == 2
+    assert label_count.shape[0] == children.shape[0]
+
+    cdef INT_t count_nonzero = data.shape[0] * tree_depth
+    cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
+    cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
+    cdef numpy.ndarray[FLOAT_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=FLOAT)
+    cdef INT_t i, node, next_node
+    cdef FLOAT_t s
+
+    cdef numpy.ndarray[FLOAT_t, ndim=1] node_weights = numpy.zeros((label_count.shape[0]), dtype=FLOAT)
+    for i in xrange(label_count.shape[0]):
+        s = float(label_count[i, 0] + label_count[i, 1])
+        node_weights[i] = label_count[i, 1] / s
+
+    next = 0
+    for i in xrange(data.shape[0]):
+        node = 0
+        rows[next] = i
+        cols[next] = node
+        vals[next] = node_weights[node]
+        next += 1
+        while children[node, 0] >= 0:
+            if data[i, split_dims[node]] < split_values[node]:
+                next_node = children[node, 0]
+            else:
+                next_node = children[node, 1]
+            rows[next] = i
+            cols[next] = next_node
+            vals[next] = node_weights[next_node] - node_weights[node]
+            next += 1
+            node = next_node
+
+    return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))

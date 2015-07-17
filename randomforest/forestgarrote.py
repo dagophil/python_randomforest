@@ -1,6 +1,3 @@
-import scipy.sparse
-
-
 class ForestGarrote(object):
 
     def __init__(self, rf):
@@ -20,10 +17,12 @@ class ForestGarrote(object):
         :param data: the data
         :param labels: classes of the data
         """
-        # x = scipy.sparse.
-        ids = self._rf._trees[0].node_index_vectors(data)
-        print ids.shape
+        # Get the weighted node index vectors as new features.
+        weighted = self._rf.weighted_index_vectors(data)
+        print weighted.shape
+        print "non zero:", weighted.nnz, "of", (weighted.shape[0]*weighted.shape[1])
 
+        # TODO: Train the Lasso.
 
         raise NotImplementedError
 
