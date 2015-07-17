@@ -1,3 +1,5 @@
+#cython: boundscheck=False, wraparound=False, nonecheck=False, cdivision=True
+
 import numpy
 cimport numpy
 cimport cython
@@ -249,7 +251,7 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
     cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
     cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
     cdef numpy.ndarray[FLOAT_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=FLOAT)
-    cdef INT_t i, node, next_node
+    cdef INT_t i, next, node, next_node
     cdef FLOAT_t s
 
     cdef numpy.ndarray[FLOAT_t, ndim=1] node_weights = numpy.zeros((label_count.shape[0]), dtype=FLOAT)
