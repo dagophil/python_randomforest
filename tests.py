@@ -6,6 +6,7 @@ import argparse
 from randomforest.timer import Timer
 import os
 import platform
+from randomforest.forestgarrote import ForestGarrote
 
 
 def load_neuro_data():
@@ -112,7 +113,7 @@ def train_dt(predict=True, save=False, load=False, filename=None):
 # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
-def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=None):
+def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=None, refine=False):
     """
     Train a random forest and compute the accuracy on a test set.
 
@@ -152,11 +153,24 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
             f.write(rf.to_string())
 
     if predict:
-        print "Predicting on a test set."
-        with Timer("Prediction took %.03f seconds."):
+        print "Predicting on a test set with the random forest."
+        with Timer("Random forest prediction took %.03f seconds."):
             pred = rf.predict(test_x)
         count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
         print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+
+    if refine:
+        print "Refining the random forest using forest garrote."
+        fg = ForestGarrote(rf)
+        with Timer("Refining took %.03f seconds."):
+            fg.refine()
+
+        if predict:
+            print "Predicting on a test set with the forest garrote."
+            with Timer("Forest garrote prediction took %.03f seconds."):
+                pred = fg.predict(test_x)
+            count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+            print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
 def parse_command_line():
@@ -175,6 +189,7 @@ def parse_command_line():
     parser.add_argument("--filename", type=str, help="file name")
     parser.add_argument("-n", "--n_trees", type=int, default=100, help="number of trees in the random forest")
     parser.add_argument("--n_jobs", type=int, default=-1, help="number of jobs (-1: use number of cores)")
+    parser.add_argument("--refine", action="store_true", help="do additional refinement (forrest garrote)")
     args = parser.parse_args()
 
     if not args.dtree and not args.rf:
@@ -203,7 +218,7 @@ def main():
     if args.dtree:
         train_dt(args.predict, args.save, args.load, args.filename)
     if args.rf:
-        train_rf(args.n_trees, args.n_jobs, args.predict, args.save, args.load, args.filename)
+        train_rf(args.n_trees, args.n_jobs, args.predict, args.save, args.load, args.filename, args.refine)
 
     return 0
 
