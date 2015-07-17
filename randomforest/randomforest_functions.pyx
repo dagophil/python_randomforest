@@ -9,8 +9,6 @@ INT = numpy.int_
 ctypedef numpy.int_t INT_t
 
 
-@cython.boundscheck(False)
-@cython.cdivision(True)
 def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] priors):
     """
     Given an array with classes, find the split index where the gini is best.
@@ -63,17 +61,19 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
     return best_gini, best_index+1, split_found
 
 
-@cython.boundscheck(False)
-@cython.cdivision(True)
-cdef predict_proba_impl(FLOAT_t[:, :] data, INT_t[:, :] children, INT_t[:] split_dims, FLOAT_t[:] split_values,
-                  INT_t[:, :] label_count, FLOAT_t[:, :] probs, INT_t[:] label_sums):
+def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values):
+    """
+    Find the leaf index of each instance in data.
 
-    cdef INT_t i, j, node
-    cdef FLOAT_t s
-
-    for i in xrange(label_count.shape[0]):
-        for j in xrange(label_count.shape[1]):
-            label_sums[i] += label_count[i, j]
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :return: leaf indices of the given data
+    """
+    cdef numpy.ndarray[INT_t, ndim=1] indices = numpy.zeros((data.shape[0],), dtype=INT)
+    cdef INT_t i, node
 
     for i in xrange(data.shape[0]):
         node = 0
@@ -82,12 +82,29 @@ cdef predict_proba_impl(FLOAT_t[:, :] data, INT_t[:, :] children, INT_t[:] split
                 node = children[node, 0]
             else:
                 node = children[node, 1]
-        s = float(label_sums[node])
-        for j in xrange(label_count.shape[1]):
-            probs[i, j] = label_count[node, j] / s
+        indices[i] = node
 
-def predict_proba(FLOAT_t[:, :] data, INT_t[:, :] children, INT_t[:] split_dims, FLOAT_t[:] split_values,
-                  INT_t[:, :] label_count):
+    return indices
+
+
+def node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values):
+    """
+    Return the node index vector of each instance in data.
+
+    :param data:
+    :param children:
+    :param split_dims:
+    :param split_values:
+    :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
+    """
+    cdef numpy.ndarray[INT_t, ndim=2] indices = numpy.zeros((data.shape[0], children.shape[0]), dtype=INT)
+    return indices
+
+
+def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+                  numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
+                  numpy.ndarray[INT_t, ndim=2] label_count):
     """
     Predict the class probabilities of the given data.
 
@@ -98,7 +115,21 @@ def predict_proba(FLOAT_t[:, :] data, INT_t[:, :] children, INT_t[:] split_dims,
     :param label_count: label counts in each node
     :return: class probabilities of the data
     """
-    cdef FLOAT_t[:, :] probs = numpy.zeros((data.shape[0], label_count.shape[1]), dtype=FLOAT)
-    cdef INT_t[:] label_sums = numpy.zeros((label_count.shape[0],), dtype=INT)
-    predict_proba_impl(data, children, split_dims, split_values, label_count, probs, label_sums)
+    cdef numpy.ndarray[FLOAT_t, ndim=2] probs = numpy.zeros((data.shape[0], label_count.shape[1]), dtype=FLOAT)
+    cdef numpy.ndarray[INT_t, ndim=1] label_sums = numpy.zeros((label_count.shape[0],), dtype=INT)
+    cdef INT_t i, j, node
+    cdef FLOAT_t s
+
+    cdef numpy.ndarray[INT_t, ndim=1] indices = leaf_ids(data, children, split_dims, split_values)
+
+    for i in xrange(label_count.shape[0]):
+        for j in xrange(label_count.shape[1]):
+            label_sums[i] += label_count[i, j]
+
+    for i in xrange(data.shape[0]):
+        node = indices[i]
+        s = float(label_sums[node])
+        for j in xrange(label_count.shape[1]):
+            probs[i, j] = label_count[node, j] / s
+
     return probs

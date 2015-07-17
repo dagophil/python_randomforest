@@ -627,6 +627,30 @@ class DecisionTreeClassifier(object):
         pred = numpy.argmax(probs, axis=1)
         return self._label_names[pred]
 
+    def leaf_ids(self, data):
+        """
+        Return the leaf id of each instance in data.
+
+        :param data: the data
+        :return: leaf ids of the data
+        """
+        # Get the arrays with the node information.
+        node_children, node_split_dims, node_split_values, node_label_count = self._get_arrays()
+        indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, node_split_dims, node_split_values)
+        return indices
+
+    def node_index_vectors(self, data):
+        """
+        Return the node index vector of each instance in data.
+
+        :param data: the data
+        :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
+        """
+        # Get the arrays with the node information.
+        node_children, node_split_dims, node_split_values, node_label_count = self._get_arrays()
+        indices = randomforest_functions.node_ids(data.astype(numpy.float_), node_children, node_split_dims, node_split_values)
+        return indices
+
 
 def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
     """
@@ -689,6 +713,14 @@ class RandomForestClassifier(object):
         self._trees = [DecisionTreeClassifier(n_rand_dims=tree_rand_dims, **tree_kwargs)
                        for _ in xrange(n_estimators)]
         self._label_names = None
+
+    def classes(self):
+        """
+        Return the classes that were found in training.
+
+        :return: the classes
+        """
+        return numpy.array(self._label_names)
 
     def fit(self, data, labels):
         """

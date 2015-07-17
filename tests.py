@@ -163,7 +163,7 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
         print "Refining the random forest using forest garrote."
         fg = ForestGarrote(rf)
         with Timer("Refining took %.03f seconds."):
-            fg.refine()
+            fg.refine(train_x, train_y)
 
         if predict:
             print "Predicting on a test set with the forest garrote."
