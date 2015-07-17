@@ -1,12 +1,16 @@
 import numpy
 cimport numpy
 cimport cython
+import scipy.sparse
 
 FLOAT = numpy.float_
 ctypedef numpy.float_t FLOAT_t
 
 INT = numpy.int_
 ctypedef numpy.int_t INT_t
+
+UINT8 = numpy.uint8
+ctypedef numpy.uint8_t UINT8_t
 
 
 def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] priors):
@@ -87,18 +91,64 @@ def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] c
     return indices
 
 
+def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
+                    numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
+                    INT_t tree_depth):
+    """
+    Return the node index vector of each instance in data as a sparse matrix.
+
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
+    :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
+    """
+    cdef INT_t count_nonzero = data.shape[0] * tree_depth
+    cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
+    cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
+    cdef numpy.ndarray[UINT8_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=UINT8)  # this should be boolean, but cython does not support bool arrays
+    cdef INT_t i, next, node
+
+    next = 0
+    for i in xrange(data.shape[0]):
+        node = 0
+        while children[node, 0] >= 0:
+            if data[i, split_dims[node]] < split_values[node]:
+                node = children[node, 0]
+            else:
+                node = children[node, 1]
+            rows[next] = i
+            cols[next] = node
+            vals[next] = 1
+            next += 1
+
+    return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
+
+
 def node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
-             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values):
+             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values, INT_t tree_depth):
     """
     Return the node index vector of each instance in data.
 
-    :param data:
-    :param children:
-    :param split_dims:
-    :param split_values:
+    :param data: the data
+    :param children: child information of the graph
+    :param split_dims: node split dimensions
+    :param split_values: node split values
+    :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
     :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
     """
-    cdef numpy.ndarray[INT_t, ndim=2] indices = numpy.zeros((data.shape[0], children.shape[0]), dtype=INT)
+    cdef numpy.ndarray[UINT8_t, ndim=2] indices = numpy.zeros((data.shape[0], children.shape[0]), dtype=UINT8)
+    cdef INT_t i, node
+
+    for i in xrange(data.shape[0]):
+        node = 0
+        while children[node, 0] >= 0:
+            if data[i, split_dims[node]] < split_values[node]:
+                node = children[node, 0]
+            else:
+                node = children[node, 1]
+            indices[i, node] = 1
     return indices
 
 

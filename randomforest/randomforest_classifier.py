@@ -576,16 +576,16 @@ class DecisionTreeClassifier(object):
         """
         num_nodes = self._graph.number_of_nodes()
         node_children = -numpy.ones((num_nodes, 2), numpy.int_)
-        node_split_dims = -numpy.ones((num_nodes,), numpy.int_)
-        node_split_values = numpy.zeros((num_nodes,), numpy.float_)
-        node_label_count = numpy.zeros((num_nodes, len(self._label_names)), numpy.int_)
+        split_dims = -numpy.ones((num_nodes,), numpy.int_)
+        split_values = numpy.zeros((num_nodes,), numpy.float_)
+        label_count = numpy.zeros((num_nodes, len(self._label_names)), numpy.int_)
         for node_id in self._graph.nodes():
             node = self._graph.node[node_id]
 
             # Update the label count.
             has_labels = False
             for j, c in enumerate(node["label_counts"]):
-                node_label_count[node_id, j] = c
+                label_count[node_id, j] = c
                 if c > 0:
                     has_labels = True
 
@@ -597,9 +597,9 @@ class DecisionTreeClassifier(object):
                     n0_id, n1_id = n1_id, n0_id
                 node_children[node_id, 0] = n0_id
                 node_children[node_id, 1] = n1_id
-                node_split_dims[node_id] = node["split_dim"]
-                node_split_values[node_id] = node["split_value"]
-        return node_children, node_split_dims, node_split_values, node_label_count
+                split_dims[node_id] = node["split_dim"]
+                split_values[node_id] = node["split_value"]
+        return node_children, split_dims, split_values, label_count
 
     def predict_proba(self, data):
         """
@@ -612,11 +612,11 @@ class DecisionTreeClassifier(object):
             raise Exception("The input array contains NaNs")
 
         # Get the arrays with the node information.
-        node_children, node_split_dims, node_split_values, node_label_count = self._get_arrays()
+        node_children, split_dims, split_values, label_count = self._get_arrays()
 
         # Call the cython probability function.
-        probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, node_split_dims,
-                                                     node_split_values, node_label_count)
+        probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
+                                                     split_values, label_count)
         return numpy.array(probs)
 
     def predict(self, data):
@@ -638,8 +638,8 @@ class DecisionTreeClassifier(object):
         :return: leaf ids of the data
         """
         # Get the arrays with the node information.
-        node_children, node_split_dims, node_split_values, node_label_count = self._get_arrays()
-        indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, node_split_dims, node_split_values)
+        node_children, split_dims, split_values, label_count = self._get_arrays()
+        indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, split_dims, split_values)
         return indices
 
     def node_index_vectors(self, data):
@@ -650,8 +650,9 @@ class DecisionTreeClassifier(object):
         :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
         """
         # Get the arrays with the node information.
-        node_children, node_split_dims, node_split_values, node_label_count = self._get_arrays()
-        indices = randomforest_functions.node_ids(data.astype(numpy.float_), node_children, node_split_dims, node_split_values)
+        node_children, split_dims, split_values, label_count = self._get_arrays()
+        indices = randomforest_functions.node_ids(data.astype(numpy.float_), node_children, split_dims,
+                                                  split_values, self._depth)
         return indices
 
 
