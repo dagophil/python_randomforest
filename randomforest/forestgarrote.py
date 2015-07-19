@@ -1,3 +1,7 @@
+import numpy
+import sklearn.linear_model
+
+
 class ForestGarrote(object):
 
     def __init__(self, rf):
@@ -19,10 +23,18 @@ class ForestGarrote(object):
         """
         # Get the weighted node index vectors as new features.
         weighted = self._rf.weighted_index_vectors(data)
-        print weighted.shape
-        print "non zero:", weighted.nnz, "of", (weighted.shape[0]*weighted.shape[1])
 
-        # TODO: Train the Lasso.
+        # Translate the labels to 0 and 1.
+        tmp_labels = numpy.zeros(labels.shape, dtype=numpy.float_)
+        tmp_labels[numpy.where(labels == self._rf.classes()[1])] = 1.
+
+        # TODO: Use sparse Lasso instead.
+        # TODO: Use parameter coef_init for the weights and the real index vectors instead of the weighted ones.
+
+        las = sklearn.linear_model.Lasso()
+        alphas, coefs, dual_gaps = las.path(weighted, tmp_labels, positive=True)
+
+        # TODO: Use the coefs to improve the weights and merge leaves.
 
         raise NotImplementedError
 
