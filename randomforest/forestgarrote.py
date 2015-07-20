@@ -14,6 +14,7 @@ class ForestGarrote(object):
         if len(rf.classes()) != 2:
             raise Exception("Currently, the forest garrote is only implemented for 2-class problems.")
         self._rf = rf
+        self._coefs = None
 
     def refine(self, data, labels):
         """
@@ -29,17 +30,16 @@ class ForestGarrote(object):
         tmp_labels = numpy.zeros(labels.shape, dtype=numpy.float_)
         tmp_labels[numpy.where(labels == self._rf.classes()[1])] = 1.
 
-        # TODO: Use sparse Lasso instead.
-        # TODO: Use parameter coef_init for the weights and the real index vectors instead of the weighted ones.
-
+        # Train the Lasso and save the best coefficients.
         gram = weighted.transpose().dot(weighted)
-        alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True,
+        alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, n_alphas=100,
                                                                    precompute=True, Gram=gram)
+        self._coefs = scipy.sparse.diags(coefs[:, -1], 0)
 
-        # TODO: Use more iterations.
-        # TODO: Save coefs and use them in the prediction.
+        # nnz = len(self._coefs.nonzero()[0])
+        # print nnz, "of", weighted.shape[1], "weights are non-zero (%f%%)" % (nnz/float(weighted.shape[1]))
 
-        raise NotImplemented
+        # TODO: Find a better value for n_alphas.
 
     def predict(self, data):
         """
@@ -48,11 +48,12 @@ class ForestGarrote(object):
         :param data: the data
         :return: classes of the data
         """
-        index_data = scipy.sparse.csc_matrix(self._rf.node_index_vectors(data))
-        node_weights = self._rf.adjusted_node_weights()
+        # Get the weighted node index vectors.
+        weighted = self._rf.weighted_index_vectors(data)
 
-        # TODO: Multiply the weights by the saved lasso coefficients.
+        # Multiply with the lasso weights.
+        weighted = weighted * self._coefs
 
-        node_weights = scipy.sparse.diags(node_weights, 0)
-        weighted_data = index_data*node_weights
-        return numpy.round(weighted_data.sum(axis=1)/self._rf.num_trees()).astype(numpy.uint8)
+        # Round the values.
+        val = numpy.array(weighted.sum(axis=1)).flatten()
+        return numpy.round(val).astype(numpy.uint8)
