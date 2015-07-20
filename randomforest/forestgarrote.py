@@ -1,5 +1,6 @@
 import numpy
 import sklearn.linear_model
+import scipy.sparse
 
 
 class ForestGarrote(object):
@@ -31,12 +32,14 @@ class ForestGarrote(object):
         # TODO: Use sparse Lasso instead.
         # TODO: Use parameter coef_init for the weights and the real index vectors instead of the weighted ones.
 
-        las = sklearn.linear_model.Lasso()
-        alphas, coefs, dual_gaps = las.path(weighted, tmp_labels, positive=True)
+        gram = weighted.transpose().dot(weighted)
+        alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True,
+                                                                   precompute=True, Gram=gram)
 
-        # TODO: Use the coefs to improve the weights and merge leaves.
+        # TODO: Use more iterations.
+        # TODO: Save coefs and use them in the prediction.
 
-        raise NotImplementedError
+        raise NotImplemented
 
     def predict(self, data):
         """
@@ -45,4 +48,11 @@ class ForestGarrote(object):
         :param data: the data
         :return: classes of the data
         """
-        raise NotImplementedError
+        index_data = scipy.sparse.csc_matrix(self._rf.node_index_vectors(data))
+        node_weights = self._rf.adjusted_node_weights()
+
+        # TODO: Multiply the weights by the saved lasso coefficients.
+
+        node_weights = scipy.sparse.diags(node_weights, 0)
+        weighted_data = index_data*node_weights
+        return numpy.round(weighted_data.sum(axis=1)/self._rf.num_trees()).astype(numpy.uint8)
