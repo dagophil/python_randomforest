@@ -660,6 +660,15 @@ class DecisionTreeClassifier(object):
         node_children, split_dims, split_values, label_count = self._get_arrays()
         return label_count[:, 1] / label_count.sum(axis=1).astype(numpy.float_)
 
+    def adjusted_node_weights(self):
+        """
+        Return the adjusted 2-class node weights.
+
+        :return: node weights
+        """
+        node_children, split_dims, split_values, label_count = self._get_arrays()
+        return randomforest_functions.adjusted_node_weights(node_children, label_count)
+
     def node_index_vectors(self, data):
         """
         Return the node index vector of each instance in data.
@@ -832,6 +841,14 @@ class RandomForestClassifier(object):
         :return: node weights
         """
         return numpy.concatenate([tree.node_weights() for tree in self._trees])
+
+    def adjusted_node_weights(self):
+        """
+        Return the adjusted node weights.
+
+        :return: adjusted node weights
+        """
+        return numpy.concatenate([tree.adjusted_node_weights() for tree in self._trees])
 
     def node_index_vectors(self, data):
         """

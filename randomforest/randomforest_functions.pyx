@@ -191,6 +191,38 @@ def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, nd
     return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
 
 
+def adjusted_node_weights(numpy.ndarray[INT_t, ndim=2] children, numpy.ndarray[INT_t, ndim=2] label_count):
+    """
+    Return the adjusted node weights.
+
+    :param children: child information of the graph
+    :param label_count: label counts in each node
+    :return: adjusted node weights
+    """
+    assert label_count.shape[1] == 2
+    assert label_count.shape[0] == children.shape[0]
+
+    cdef numpy.ndarray[FLOAT_t, ndim=1] old_weights = numpy.zeros((children.shape[0],), dtype=FLOAT)
+    cdef numpy.ndarray[FLOAT_t, ndim=1] weights = numpy.zeros((children.shape[0],), dtype=FLOAT)
+    cdef INT_t i
+    cdef FLOAT_t s
+
+    for i in xrange(label_count.shape[0]):
+        s = float(label_count[i, 0] + label_count[i, 1])
+        old_weights[i] = label_count[i, 1] / s
+
+    weights[0] = old_weights[0]
+    for i in xrange(children.shape[0]):
+        left = children[i, 0]
+        if left >= 0:
+            weights[left] = old_weights[left] - old_weights[i]
+        right = children[i, 1]
+        if right >= 0:
+            weights[right] = old_weights[right] - old_weights[i]
+
+    return weights
+
+
 def weighted_node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                       numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
                       numpy.ndarray[INT_t, ndim=2] label_count):
