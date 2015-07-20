@@ -175,8 +175,8 @@ def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, nd
     for i in xrange(data.shape[0]):
         node = 0
         rows[next] = i
-        rows[next] = node
-        rows[next] = 1
+        cols[next] = node
+        vals[next] = 1
         next += 1
         while children[node, 0] >= 0:
             if data[i, split_dims[node]] < split_values[node]:

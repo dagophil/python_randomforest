@@ -651,6 +651,15 @@ class DecisionTreeClassifier(object):
         indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, split_dims, split_values)
         return indices
 
+    def node_weights(self):
+        """
+        Return the 2-class node weights
+
+        :return: node weights
+        """
+        node_children, split_dims, split_values, label_count = self._get_arrays()
+        return label_count[:, 1] / label_count.sum(axis=1).astype(numpy.float_)
+
     def node_index_vectors(self, data):
         """
         Return the node index vector of each instance in data.
@@ -748,6 +757,14 @@ class RandomForestClassifier(object):
         """
         return numpy.array(self._label_names)
 
+    def num_trees(self):
+        """
+        Return the number of trees.
+
+        :return: number of trees
+        """
+        return len(self._trees)
+
     def fit(self, data, labels):
         """
         Train a random forest.
@@ -807,6 +824,14 @@ class RandomForestClassifier(object):
         probs = self.predict_proba(data)
         pred = numpy.argmax(probs, axis=1)
         return self._label_names[pred]
+
+    def node_weights(self):
+        """
+        Return the node weights.
+
+        :return: node weights
+        """
+        return numpy.concatenate([tree.node_weights() for tree in self._trees])
 
     def node_index_vectors(self, data):
         """
