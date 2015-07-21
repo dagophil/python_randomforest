@@ -41,9 +41,7 @@ class ForestGarrote(object):
         coefs = coefs[:, -1]
         nnz = coefs.nonzero()[0]
         nnz_coefs = coefs[nnz]
-        print "creating sub forest"
         self._rf = self._rf.sub_fg_forest(nnz, nnz_coefs)
-        print "done creating sub forest"
 
     def predict(self, data):
         """

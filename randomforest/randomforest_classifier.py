@@ -605,7 +605,6 @@ class DecisionTreeClassifier(object):
                     if c > 0:
                         has_labels = True
 
-
             # Update the children and split information.
             if "split_dim" in node and has_labels:
                 n0_id, n1_id = self._graph.neighbors(node_id)
@@ -703,16 +702,86 @@ class DecisionTreeClassifier(object):
                                                                   split_values, label_probs, self._depth)
         return weights
 
-    def sub_fg_tree(self, nodes, weights):
+    def sub_fg_tree(self, nodes, weights, num_trees):
         """
         Return a decision tree, where only the given nodes remain and use the weights to assign new label probabilities.
         All nodes on the path from the root node to the given nodes stay in the tree, too.
 
         :param nodes: list with node ids
         :param weights: weights for the given nodes
+        :param num_trees: number of trees from the forest garrote
         :return: sub decision tree
         """
-        raise NotImplementedError
+        dt = DecisionTreeClassifier(n_rand_dims=self._n_rand_dims, bootstrap_sampling=self._bootstrap_sampling,
+                                    use_sample_label_count=self._use_sample_label_count,
+                                    resample_count=self._resample_count, max_depth=self._max_depth,
+                                    min_count=self._min_count)
+        dt._label_names = numpy.array(self._label_names)
+
+        # Walk the tree from the given nodes to the root node and mark all nodes on the path to be kept.
+        keep = numpy.zeros(self.num_nodes(), dtype=numpy.uint8)
+        keep[nodes] = 1
+        for n in nodes:
+            parents = self._graph.predecessors(n)
+            while len(parents) > 0:
+                p = parents[0]
+                keep[p] = 1
+                for c in self._graph.successors(p):
+                    keep[c] = 1
+                parents = self._graph.predecessors(p)
+        assert keep[0] == 1  # the root node has to be kept
+
+        # Make the weights accessible by node id.
+        node_weights = numpy.zeros(self.num_nodes(), dtype=numpy.float_)
+        node_weights[nodes] = weights
+
+        # Build the new graph.
+        node_map = numpy.zeros(self.num_nodes(), dtype=numpy.int_)
+        gr = networkx.DiGraph()
+        qu = collections.deque()
+        qu.append(0)
+        next_id = 0
+        while len(qu) > 0:
+            # Get the node from the old graph and add it to the new graph.
+            node_id = qu.popleft()
+            node = self._graph.node[node_id]
+            gr.add_node(next_id, depth=node["depth"])
+            new_node = gr.node[next_id]
+            node_map[node_id] = next_id
+
+            # Update the node information.
+            has_children = any([keep[c] == 1 for c in self._graph.successors(node_id)])
+            if has_children:
+                new_node["split_dim"] = node["split_dim"]
+                new_node["split_value"] = node["split_value"]
+            if "is_left" in node:
+                new_node["is_left"] = node["is_left"]
+
+            # Compute the forest garrote weight.
+            new_node["prob"] = node["label_counts"][1] / float(node["label_counts"].sum())
+            new_node["fg_prob"] = new_node["prob"]
+            if node_id != 0:
+                p_id = node_map[self._graph.predecessors(node_id)[0]]
+                new_node["fg_prob"] -= gr.node[p_id]["prob"]
+                # Add the edge from the parent.
+                gr.add_edge(p_id, next_id)
+            new_node["weight"] = node_weights[node_id] * new_node["fg_prob"]
+            if node_id != 0:
+                p_id = node_map[self._graph.predecessors(node_id)[0]]
+                new_node["weight"] += gr.node[p_id]["weight"]
+
+            # Compute the label probability.
+            w = new_node["weight"] * num_trees
+            new_node["label_probs"] = numpy.array([1-w, w])
+
+            # Add the children to the queue.
+            for c in self._graph.successors(node_id):
+                if keep[c] == 1:
+                    qu.append(c)
+            next_id += 1
+
+        dt._graph = gr
+        return dt
 
 
 def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
@@ -930,9 +999,11 @@ class RandomForestClassifier(object):
             tree = bisect.bisect_right(node_counts, n)-1
             tree_nodes[tree].append(n - node_counts[tree])
             tree_weights[tree].append(w)
+        tree_nodes = [numpy.array(n) for n in tree_nodes]
+        tree_weights = [numpy.array(w) for w in tree_weights]
 
         # Build the random forest by taking the sub trees.
         rf = RandomForestClassifier(n_jobs=self._n_jobs)
         rf._label_names = numpy.array(self._label_names)
-        rf._trees = [tree.sub_fg_tree(n, w) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
+        rf._trees = [tree.sub_fg_tree(n, w, len(self._trees)) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
         return rf
