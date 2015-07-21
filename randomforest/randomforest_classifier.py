@@ -862,6 +862,14 @@ class RandomForestClassifier(object):
         """
         return len(self._trees)
 
+    def num_nodes(self):
+        """
+        Return the number of nodes.
+
+        :return: number of nodes
+        """
+        return sum([tree.num_nodes() for tree in self._trees])
+
     def fit(self, data, labels):
         """
         Train a random forest.

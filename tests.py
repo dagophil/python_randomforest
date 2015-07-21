@@ -163,6 +163,14 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
         print "Refining the random forest using forest garrote."
         with Timer("Refining took %.03f seconds."):
             refined_rf = forest_garrote(rf, train_x, train_y)
+        print "The old forest has %d nodes, the refined forest has %d nodes." % (rf.num_nodes(), refined_rf.num_nodes())
+
+        if save:
+            f0, f1 = os.path.split(filename)
+            refined_filename = os.path.join(f0, "refined_" + f1)
+            print "Saving refined random forest to file %s." % refined_filename
+            with open(refined_filename, "w") as f:
+                f.write(refined_rf.to_string())
 
         if predict:
             print "Predicting on a test set with the forest garrote."
