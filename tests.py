@@ -16,10 +16,10 @@ def load_neuro_data():
     :return: train_x, train_y, test_x, test_y
     """
     # Load the data.
-    train_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/train/ffeat_br_segid0.h5", "ffeat_br")
-    train_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/train/gt_face_segid0.h5", "gt_face")[:, 0])
-    test_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/test/ffeat_br_segid0.h5", "ffeat_br")
-    test_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/test/gt_face_segid0.h5", "gt_face")[:, 0])
+    train_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/train/ffeat_br_segid0.h5", "ffeat_br")
+    train_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/train/gt_face_segid0.h5", "gt_face")[:, 0])
+    test_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/test/ffeat_br_segid0.h5", "ffeat_br")
+    test_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/test/gt_face_segid0.h5", "gt_face")[:, 0])
     assert train_x.shape[0] == train_y.shape[0]
     assert test_x.shape[0] == test_y.shape[0]
     assert train_x.shape[1] == test_x.shape[1]

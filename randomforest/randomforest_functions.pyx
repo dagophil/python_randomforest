@@ -95,7 +95,7 @@ def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] c
 
 def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                   numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                  numpy.ndarray[INT_t, ndim=2] label_count):
+                  numpy.ndarray[FLOAT_t, ndim=2] label_probs):
     """
     Predict the class probabilities of the given data.
 
@@ -103,25 +103,19 @@ def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim
     :param children: child information of the graph
     :param split_dims: node split dimensions
     :param split_values: node split values
-    :param label_count: label counts in each node
+    :param label_probs: label probabilities in each node
     :return: class probabilities of the data
     """
-    cdef numpy.ndarray[FLOAT_t, ndim=2] probs = numpy.zeros((data.shape[0], label_count.shape[1]), dtype=FLOAT)
-    cdef numpy.ndarray[INT_t, ndim=1] label_sums = numpy.zeros((label_count.shape[0],), dtype=INT)
+    cdef numpy.ndarray[FLOAT_t, ndim=2] probs = numpy.zeros((data.shape[0], label_probs.shape[1]), dtype=FLOAT)
     cdef INT_t i, j, node
     cdef FLOAT_t s
 
     cdef numpy.ndarray[INT_t, ndim=1] indices = leaf_ids(data, children, split_dims, split_values)
 
-    for i in xrange(label_count.shape[0]):
-        for j in xrange(label_count.shape[1]):
-            label_sums[i] += label_count[i, j]
-
     for i in xrange(data.shape[0]):
         node = indices[i]
-        s = float(label_sums[node])
-        for j in xrange(label_count.shape[1]):
-            probs[i, j] = label_count[node, j] / s
+        for j in xrange(label_probs.shape[1]):
+            probs[i, j] = label_probs[node, j]
 
     return probs
 
@@ -191,41 +185,36 @@ def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, nd
     return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
 
 
-def adjusted_node_weights(numpy.ndarray[INT_t, ndim=2] children, numpy.ndarray[INT_t, ndim=2] label_count):
+def adjusted_node_weights(numpy.ndarray[INT_t, ndim=2] children, numpy.ndarray[FLOAT_t, ndim=2] label_probs):
     """
     Return the adjusted node weights.
 
     :param children: child information of the graph
-    :param label_count: label counts in each node
+    :param label_probs: label probabilities in each node
     :return: adjusted node weights
     """
-    assert label_count.shape[1] == 2
-    assert label_count.shape[0] == children.shape[0]
+    assert label_probs.shape[1] == 2
+    assert label_probs.shape[0] == children.shape[0]
 
-    cdef numpy.ndarray[FLOAT_t, ndim=1] old_weights = numpy.zeros((children.shape[0],), dtype=FLOAT)
     cdef numpy.ndarray[FLOAT_t, ndim=1] weights = numpy.zeros((children.shape[0],), dtype=FLOAT)
     cdef INT_t i
     cdef FLOAT_t s
 
-    for i in xrange(label_count.shape[0]):
-        s = float(label_count[i, 0] + label_count[i, 1])
-        old_weights[i] = label_count[i, 1] / s
-
-    weights[0] = old_weights[0]
+    weights[0] = label_probs[0, 1]
     for i in xrange(children.shape[0]):
         left = children[i, 0]
         if left >= 0:
-            weights[left] = old_weights[left] - old_weights[i]
+            weights[left] = label_probs[left, 1] - label_probs[i, 1]
         right = children[i, 1]
         if right >= 0:
-            weights[right] = old_weights[right] - old_weights[i]
+            weights[right] = label_probs[right, 1] - label_probs[i, 1]
 
     return weights
 
 
 def weighted_node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                       numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                      numpy.ndarray[INT_t, ndim=2] label_count):
+                      numpy.ndarray[FLOAT_t, ndim=2] label_probs):
     """
     Return the weighted node index vector of each instance in data.
 
@@ -233,30 +222,25 @@ def weighted_node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, 
     :param children: child information of the graph
     :param split_dims: node split dimensions
     :param split_values: node split values
-    :param label_count: label counts in each node
+    :param label_probs: label probabilities in each node
     :return: weighted node index vector
     """
-    assert label_count.shape[1] == 2
-    assert label_count.shape[0] == children.shape[0]
+    assert label_probs.shape[1] == 2
+    assert label_probs.shape[0] == children.shape[0]
 
     cdef numpy.ndarray[FLOAT_t, ndim=2] weights = numpy.zeros((data.shape[0], children.shape[0]), dtype=FLOAT)
     cdef INT_t i, node, next_node
     cdef FLOAT_t s
 
-    cdef numpy.ndarray[FLOAT_t, ndim=1] node_weights = numpy.zeros((label_count.shape[0]), dtype=FLOAT)
-    for i in xrange(label_count.shape[0]):
-        s = float(label_count[i, 0] + label_count[i, 1])
-        node_weights[i] = label_count[i, 1] / s
-
     for i in xrange(data.shape[0]):
         node = 0
-        weights[i, node] = node_weights[node]
+        weights[i, node] = label_probs[node, 1]
         while children[node, 0] >= 0:
             if data[i, split_dims[node]] < split_values[node]:
                 next_node = children[node, 0]
             else:
                 next_node = children[node, 1]
-            weights[i, next_node] = node_weights[next_node] - node_weights[node]
+            weights[i, next_node] = label_probs[next_node, 1] - label_probs[node, 1]
             node = next_node
 
     return weights
@@ -264,7 +248,7 @@ def weighted_node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, 
 
 def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                              numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                             numpy.ndarray[INT_t, ndim=2] label_count, INT_t tree_depth):
+                             numpy.ndarray[FLOAT_t, ndim=2] label_probs, INT_t tree_depth):
     """
     Return the weighted node index vector of each instance in data as a sparse matrix.
 
@@ -272,12 +256,12 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
     :param children: child information of the graph
     :param split_dims: node split dimensions
     :param split_values: node split values
-    :param label_count: label counts in each node
+    :param label_probs: label counts in each node
     :param tree_depth: the tree depth, so an estimate of the number of non-zero entries can be computed
     :return: weighted node index vector
     """
-    assert label_count.shape[1] == 2
-    assert label_count.shape[0] == children.shape[0]
+    assert label_probs.shape[1] == 2
+    assert label_probs.shape[0] == children.shape[0]
 
     cdef INT_t count_nonzero = data.shape[0] * tree_depth
     cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
@@ -286,17 +270,12 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
     cdef INT_t i, next, node, next_node
     cdef FLOAT_t s
 
-    cdef numpy.ndarray[FLOAT_t, ndim=1] node_weights = numpy.zeros((label_count.shape[0]), dtype=FLOAT)
-    for i in xrange(label_count.shape[0]):
-        s = float(label_count[i, 0] + label_count[i, 1])
-        node_weights[i] = label_count[i, 1] / s
-
     next = 0
     for i in xrange(data.shape[0]):
         node = 0
         rows[next] = i
         cols[next] = node
-        vals[next] = node_weights[node]
+        vals[next] = label_probs[node, 1]
         next += 1
         while children[node, 0] >= 0:
             if data[i, split_dims[node]] < split_values[node]:
@@ -305,7 +284,7 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
                 next_node = children[node, 1]
             rows[next] = i
             cols[next] = next_node
-            vals[next] = node_weights[next_node] - node_weights[node]
+            vals[next] = label_probs[next_node, 1] - label_probs[node, 1]
             next += 1
             node = next_node
 

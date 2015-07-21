@@ -16,7 +16,6 @@ class ForestGarrote(object):
         if len(rf.classes()) != 2:
             raise Exception("Currently, the forest garrote is only implemented for 2-class problems.")
         self._rf = rf
-        self._coefs = None
 
     def refine(self, data, labels):
         """
@@ -33,15 +32,18 @@ class ForestGarrote(object):
         tmp_labels[numpy.where(labels == self._rf.classes()[1])] = 1.
 
         # Train the Lasso and save the best coefficients.
+        # TODO: Find a better value for n_alphas.
         gram = weighted.transpose().dot(weighted)
         alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, n_alphas=100,
                                                                    precompute=True, Gram=gram)
-        self._coefs = scipy.sparse.diags(coefs[:, -1], 0)
 
-        # nnz = len(self._coefs.nonzero()[0])
-        # print nnz, "of", weighted.shape[1], "weights are non-zero (%f%%)" % (nnz/float(weighted.shape[1]))
-
-        # TODO: Find a better value for n_alphas.
+        # Build the new forest by keeping all nodes on the path from the root to the nodes with non-zero weight.
+        coefs = coefs[:, -1]
+        nnz = coefs.nonzero()[0]
+        nnz_coefs = coefs[nnz]
+        print "creating sub forest"
+        self._rf = self._rf.sub_fg_forest(nnz, nnz_coefs)
+        print "done creating sub forest"
 
     def predict(self, data):
         """
@@ -50,12 +52,4 @@ class ForestGarrote(object):
         :param data: the data
         :return: classes of the data
         """
-        # Get the weighted node index vectors.
-        weighted = self._rf.weighted_index_vectors(data)
-
-        # Multiply with the lasso weights.
-        weighted = weighted * self._coefs
-
-        # Round the values.
-        val = numpy.array(weighted.sum(axis=1)).flatten()
-        return numpy.round(val).astype(numpy.uint8)
+        return self._rf.predict(data)

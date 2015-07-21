@@ -579,24 +579,32 @@ class DecisionTreeClassifier(object):
 
     def _get_arrays(self):
         """
-        Return the children, the split dimensions, the split values and the label counts of each node as numpy arrays.
+        Return the children, the split dimensions, the split values and the label probabilities of each node as numpy arrays.
 
-        :return: node_children, split_dimensions, split_values, label_count
+        :return: node_children, split_dimensions, split_values, label_probs
         """
         num_nodes = self._graph.number_of_nodes()
         node_children = -numpy.ones((num_nodes, 2), numpy.int_)
         split_dims = -numpy.ones((num_nodes,), numpy.int_)
         split_values = numpy.zeros((num_nodes,), numpy.float_)
-        label_count = numpy.zeros((num_nodes, len(self._label_names)), numpy.int_)
+        label_probs = numpy.zeros((num_nodes, len(self._label_names)), numpy.float_)
         for node_id in self._graph.nodes():
             node = self._graph.node[node_id]
 
             # Update the label count.
             has_labels = False
-            for j, c in enumerate(node["label_counts"]):
-                label_count[node_id, j] = c
-                if c > 0:
+            if "label_probs" in node:
+                label_probs[node_id, :] = node["label_probs"]
+                if node["label_probs"].sum() > 0:
                     has_labels = True
+            else:
+                assert "label_counts" in node
+                s = float(node["label_counts"].sum())
+                for j, c in enumerate(node["label_counts"]):
+                    label_probs[node_id, j] = c/s
+                    if c > 0:
+                        has_labels = True
+
 
             # Update the children and split information.
             if "split_dim" in node and has_labels:
@@ -608,7 +616,7 @@ class DecisionTreeClassifier(object):
                 node_children[node_id, 1] = n1_id
                 split_dims[node_id] = node["split_dim"]
                 split_values[node_id] = node["split_value"]
-        return node_children, split_dims, split_values, label_count
+        return node_children, split_dims, split_values, label_probs
 
     def predict_proba(self, data):
         """
@@ -621,11 +629,11 @@ class DecisionTreeClassifier(object):
             raise Exception("The input array contains NaNs")
 
         # Get the arrays with the node information.
-        node_children, split_dims, split_values, label_count = self._get_arrays()
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
 
         # Call the cython probability function.
         probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
-                                                     split_values, label_count)
+                                                     split_values, label_probs)
         return numpy.array(probs)
 
     def predict(self, data):
@@ -647,7 +655,7 @@ class DecisionTreeClassifier(object):
         :return: leaf ids of the data
         """
         # Get the arrays with the node information.
-        node_children, split_dims, split_values, label_count = self._get_arrays()
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
         indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, split_dims, split_values)
         return indices
 
@@ -657,8 +665,8 @@ class DecisionTreeClassifier(object):
 
         :return: node weights
         """
-        node_children, split_dims, split_values, label_count = self._get_arrays()
-        return label_count[:, 1] / label_count.sum(axis=1).astype(numpy.float_)
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
+        return label_probs[:, 1]
 
     def adjusted_node_weights(self):
         """
@@ -666,8 +674,8 @@ class DecisionTreeClassifier(object):
 
         :return: node weights
         """
-        node_children, split_dims, split_values, label_count = self._get_arrays()
-        return randomforest_functions.adjusted_node_weights(node_children, label_count)
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
+        return randomforest_functions.adjusted_node_weights(node_children, label_probs)
 
     def node_index_vectors(self, data):
         """
@@ -677,7 +685,7 @@ class DecisionTreeClassifier(object):
         :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
         """
         # Get the arrays with the node information.
-        node_children, split_dims, split_values, label_count = self._get_arrays()
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
         indices = randomforest_functions.node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
                                                          split_values, self._depth)
         return indices
@@ -690,10 +698,21 @@ class DecisionTreeClassifier(object):
         :return: weighted node index vector
         """
         # Get the arrays with the node information.
-        node_children, split_dims, split_values, label_count = self._get_arrays()
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
         weights = randomforest_functions.weighted_node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
-                                                                  split_values, label_count, self._depth)
+                                                                  split_values, label_probs, self._depth)
         return weights
+
+    def sub_fg_tree(self, nodes, weights):
+        """
+        Return a decision tree, where only the given nodes remain and use the weights to assign new label probabilities.
+        All nodes on the path from the root node to the given nodes stay in the tree, too.
+
+        :param nodes: list with node ids
+        :param weights: weights for the given nodes
+        :return: sub decision tree
+        """
+        raise NotImplementedError
 
 
 def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
@@ -892,4 +911,28 @@ class RandomForestClassifier(object):
         rf = RandomForestClassifier(n_estimators=0, n_jobs=d["n_jobs"])
         rf._trees = trees
         rf._label_names = numpy.array(d["label_names"][0], dtype=numpy.dtype(d["label_names"][1]))
+        return rf
+
+    def sub_fg_forest(self, nodes, weights):
+        """
+        Return a random forest, where only the given nodes remain and use the weights to assign new label probabilities.
+        All nodes on the path from the root nodes to the given nodes stay in the forest, too.
+
+        :param nodes: list with node ids
+        :param weights: weights for the given nodes
+        :return: sub random forest
+        """
+        # Map the forest ids to the tree ids.
+        node_counts = numpy.cumsum([0]+[tree.num_nodes() for tree in self._trees[:-1]])
+        tree_nodes = [[] for _ in self._trees]
+        tree_weights = [[] for _ in self._trees]
+        for n, w in zip(nodes, weights):
+            tree = bisect.bisect_right(node_counts, n)-1
+            tree_nodes[tree].append(n - node_counts[tree])
+            tree_weights[tree].append(w)
+
+        # Build the random forest by taking the sub trees.
+        rf = RandomForestClassifier(n_jobs=self._n_jobs)
+        rf._label_names = numpy.array(self._label_names)
+        rf._trees = [tree.sub_fg_tree(n, w) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
         return rf
