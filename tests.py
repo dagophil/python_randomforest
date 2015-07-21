@@ -6,7 +6,7 @@ import argparse
 from randomforest.timer import Timer
 import os
 import platform
-from randomforest.forestgarrote import ForestGarrote
+from randomforest.forestgarrote import forest_garrote
 
 
 def load_neuro_data():
@@ -161,14 +161,13 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
 
     if refine:
         print "Refining the random forest using forest garrote."
-        fg = ForestGarrote(rf)
         with Timer("Refining took %.03f seconds."):
-            fg.refine(train_x, train_y)
+            refined_rf = forest_garrote(rf, train_x, train_y)
 
         if predict:
             print "Predicting on a test set with the forest garrote."
             with Timer("Forest garrote prediction took %.03f seconds."):
-                pred = fg.predict(test_x)
+                pred = refined_rf.predict(test_x)
             count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
             print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
