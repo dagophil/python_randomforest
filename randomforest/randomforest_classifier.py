@@ -862,13 +862,16 @@ class RandomForestClassifier(object):
         """
         return len(self._trees)
 
-    def num_nodes(self):
+    def num_nodes(self, i=None):
         """
-        Return the number of nodes.
+        Return the number of nodes in the forest. If i is not None, return the number of nodes of the i-th tree.
 
         :return: number of nodes
         """
-        return sum([tree.num_nodes() for tree in self._trees])
+        if i is None:
+            return sum([tree.num_nodes() for tree in self._trees])
+        else:
+            return self._trees[i].num_nodes()
 
     def fit(self, data, labels):
         """
