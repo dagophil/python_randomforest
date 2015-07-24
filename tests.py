@@ -113,7 +113,7 @@ def train_dt(predict=True, save=False, load=False, filename=None):
 # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
-def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=None, refine=False):
+def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=None, refine=False, group_size=None):
     """
     Train a random forest and compute the accuracy on a test set.
 
@@ -147,7 +147,7 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
         with Timer("Training took %.03f seconds"):
             rf.fit(train_x, train_y)
 
-    if save:
+    if save and not load:
         print "Saving random forest to file %s." % filename
         with open(filename, "w") as f:
             f.write(rf.to_string())
@@ -162,7 +162,7 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
     if refine:
         print "Refining the random forest using forest garrote."
         with Timer("Refining took %.03f seconds."):
-            refined_rf = forest_garrote(rf, train_x, train_y)
+            refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
         print "The old forest has %d nodes, the refined forest has %d nodes." % (rf.num_nodes(), refined_rf.num_nodes())
 
         if save:
@@ -196,7 +196,8 @@ def parse_command_line():
     parser.add_argument("--filename", type=str, help="file name")
     parser.add_argument("-n", "--n_trees", type=int, default=100, help="number of trees in the random forest")
     parser.add_argument("--n_jobs", type=int, default=-1, help="number of jobs (-1: use number of cores)")
-    parser.add_argument("--refine", action="store_true", help="do additional refinement (forrest garrote)")
+    parser.add_argument("--refine", action="store_true", help="do the forest garrote refinement")
+    parser.add_argument("--group_size", type=int, default=None, help="group size for the forest garrote")
     args = parser.parse_args()
 
     if not args.dtree and not args.rf:
@@ -225,7 +226,8 @@ def main():
     if args.dtree:
         train_dt(args.predict, args.save, args.load, args.filename)
     if args.rf:
-        train_rf(args.n_trees, args.n_jobs, args.predict, args.save, args.load, args.filename, args.refine)
+        train_rf(args.n_trees, args.n_jobs, predict=args.predict, save=args.save, load=args.load,
+                 filename=args.filename, refine=args.refine, group_size=args.group_size)
 
     return 0
 

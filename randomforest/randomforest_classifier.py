@@ -110,7 +110,8 @@ class DecisionTreeClassifier(object):
         # Create the dict to be saved.
         d = {"constructor_dict": constructor_dict,
              "graph": arrs_list,
-             "label_names": (self._label_names.tolist(), self._label_names.dtype.str)}
+             "label_names": (self._label_names.tolist(), self._label_names.dtype.str),
+             "depth": self._depth}
 
         return json.dumps(d)
 
@@ -131,6 +132,9 @@ class DecisionTreeClassifier(object):
         label_names_list = d["label_names"][0]
         label_names_dtype = numpy.dtype(d["label_names"][1])
         tree._label_names = numpy.array(label_names_list, dtype=label_names_dtype)
+
+        # Set the depth.
+        tree._depth = d["depth"]
 
         # Create the graph.
         node_children, split_dims, split_values, label_count = [numpy.array(a[0], dtype=numpy.dtype(a[1]))
