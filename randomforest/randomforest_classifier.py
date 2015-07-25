@@ -141,11 +141,12 @@ class DecisionTreeClassifier(object):
                                                                 for a in d["graph"]]
         qu = collections.deque()
         qu.append((None, 0))
+        tree._graph.add_node(0, depth=0)
         while len(qu) > 0:
             # Add the node to the graph.
             is_left, node_id = qu.popleft()
-            tree._graph.add_node(node_id, label_counts=label_count[node_id, :])
             node = tree._graph.node[node_id]
+            node["label_counts"] = label_count[node_id, :]
 
             # Add split information.
             if split_dims[node_id] >= 0:
@@ -160,10 +161,12 @@ class DecisionTreeClassifier(object):
             id_left = node_children[node_id, 0]
             if id_left >= 0:
                 qu.append((True, id_left))
+                tree._graph.add_node(id_left, depth=node["depth"]+1)
                 tree._graph.add_edge(node_id, id_left)
             id_right = node_children[node_id, 1]
             if id_right >= 0:
                 qu.append((False, id_right))
+                tree._graph.add_node(id_right, depth=node["depth"]+1)
                 tree._graph.add_edge(node_id, id_right)
 
         return tree
@@ -997,13 +1000,14 @@ class RandomForestClassifier(object):
         rf._label_names = numpy.array(d["label_names"][0], dtype=numpy.dtype(d["label_names"][1]))
         return rf
 
-    def sub_fg_forest(self, nodes, weights):
+    def sub_fg_forest(self, nodes, weights, scale):
         """
         Return a random forest, where only the given nodes remain and use the weights to assign new label probabilities.
         All nodes on the path from the root nodes to the given nodes stay in the forest, too.
 
         :param nodes: list with node ids
         :param weights: weights for the given nodes
+        :param scale: scale the weights in each node by this factor
         :return: sub random forest
         """
         # Map the forest ids to the tree ids.
@@ -1020,5 +1024,5 @@ class RandomForestClassifier(object):
         # Build the random forest by taking the sub trees.
         rf = RandomForestClassifier(n_jobs=self._n_jobs)
         rf._label_names = numpy.array(self._label_names)
-        rf._trees = [tree.sub_fg_tree(n, w, len(self._trees)) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
+        rf._trees = [tree.sub_fg_tree(n, w, scale) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
         return rf

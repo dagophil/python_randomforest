@@ -17,7 +17,7 @@ def forest_garrote(rf, data, labels, group_size=None):
         raise Exception("Currently, the forest garrote is only implemented for 2-class problems.")
 
     # Get the weighted node index vectors as new features.
-    weighted = rf.weighted_index_vectors(data)
+    weighted = rf.weighted_index_vectors(data).tocsc()
 
     # Translate the labels to 0 and 1.
     tmp_labels = numpy.zeros(labels.shape, dtype=numpy.float_)
@@ -30,14 +30,30 @@ def forest_garrote(rf, data, labels, group_size=None):
         alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, n_alphas=100,
                                                                    precompute=True, Gram=gram)
         coefs = coefs[:, -1]
+        scale = rf.num_trees()
     else:
-        # Make tree groups of the given size and train a Lasso on each group.
-        print len(rf._trees)
-        print group_size
+        # Create the tree groups and find the number of nodes in each group.
+        n_groups = rf.num_trees() / group_size
+        group_sizes = [group_size] * n_groups
+        for i in xrange(rf.num_trees() - n_groups*group_size):
+            group_sizes[i] += 1
+        group_slices = numpy.cumsum([0]+group_sizes)
+        n_nodes = [sum([rf.num_nodes(j) for j in xrange(group_slices[i], group_slices[i+1])]) for i in xrange(n_groups)]
+        node_slices = numpy.cumsum([0]+n_nodes)
 
-        raise NotImplementedError
+        # Train a Lasso for each group.
+        coef_list = []
+        for i in xrange(n_groups):
+            print "Computing Lasso for group", i+1, "of", n_groups
+            sub_weights = weighted[:, node_slices[i]:node_slices[i+1]]
+            gram = sub_weights.transpose().dot(sub_weights)
+            alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(sub_weights, tmp_labels, positive=True,
+                                                                       n_alphas=100, precompute=True, Gram=gram)
+            coef_list.append(coefs[:, -1])
+        coefs = numpy.concatenate(coef_list)
+        scale = group_size
 
     # Build the new forest by keeping all nodes on the path from the root to the nodes with non-zero weight.
     nnz = coefs.nonzero()[0]
     nnz_coefs = coefs[nnz]
-    return rf.sub_fg_forest(nnz, nnz_coefs)
+    return rf.sub_fg_forest(nnz, nnz_coefs, scale)
