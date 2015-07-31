@@ -692,6 +692,8 @@ class DecisionTreeClassifier(object):
         """
         # Get the arrays with the node information.
         node_children, split_dims, split_values, label_probs = self._get_arrays()
+        if self._depth == 0:
+            print "Warning: Tree depth is zero."
         indices = randomforest_functions.node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
                                                          split_values, self._depth)
         return indices
@@ -705,6 +707,8 @@ class DecisionTreeClassifier(object):
         """
         # Get the arrays with the node information.
         node_children, split_dims, split_values, label_probs = self._get_arrays()
+        if self._depth == 0:
+            print "Warning: Tree depth is zero."
         weights = randomforest_functions.weighted_node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
                                                                   split_values, label_probs, self._depth)
         return weights
@@ -726,6 +730,8 @@ class DecisionTreeClassifier(object):
         dt._label_names = numpy.array(self._label_names)
 
         # Walk the tree from the given nodes to the root node and mark all nodes on the path to be kept.
+        if len(nodes) == 0:
+            return None
         keep = numpy.zeros(self.num_nodes(), dtype=numpy.uint8)
         keep[nodes] = 1
         for n in nodes:
@@ -748,6 +754,7 @@ class DecisionTreeClassifier(object):
         qu = collections.deque()
         qu.append(0)
         next_id = 0
+        depth = 0
         while len(qu) > 0:
             # Get the node from the old graph and add it to the new graph.
             node_id = qu.popleft()
@@ -755,6 +762,7 @@ class DecisionTreeClassifier(object):
             gr.add_node(next_id, depth=node["depth"])
             new_node = gr.node[next_id]
             node_map[node_id] = next_id
+            depth = max(depth, new_node["depth"])
 
             # Update the node information.
             has_children = any([keep[c] == 1 for c in self._graph.successors(node_id)])
@@ -765,7 +773,10 @@ class DecisionTreeClassifier(object):
                 new_node["is_left"] = node["is_left"]
 
             # Compute the forest garrote weight.
-            new_node["prob"] = node["label_counts"][1] / float(node["label_counts"].sum())
+            if "label_probs" in node:
+                new_node["prob"] = node["label_probs"][1]
+            else:
+                new_node["prob"] = node["label_counts"][1] / float(node["label_counts"].sum())
             new_node["fg_prob"] = new_node["prob"]
             if node_id != 0:
                 p_id = node_map[self._graph.predecessors(node_id)[0]]
@@ -788,6 +799,7 @@ class DecisionTreeClassifier(object):
             next_id += 1
 
         dt._graph = gr
+        dt._depth = depth
         return dt
 
 
@@ -1025,4 +1037,5 @@ class RandomForestClassifier(object):
         rf = RandomForestClassifier(n_jobs=self._n_jobs)
         rf._label_names = numpy.array(self._label_names)
         rf._trees = [tree.sub_fg_tree(n, w, scale) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
+        rf._trees = [tree for tree in rf._trees if tree is not None]
         return rf

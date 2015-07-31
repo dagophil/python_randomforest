@@ -19,7 +19,7 @@ def forest_garrote(rf, data, labels, group_size=None):
     # Get the weighted node index vectors as new features.
     weighted = rf.weighted_index_vectors(data).tocsc()
 
-    # Translate the labels to 0 and 1.
+    # Transform the labels to 0 and 1.
     tmp_labels = numpy.zeros(labels.shape, dtype=numpy.float_)
     tmp_labels[numpy.where(labels == rf.classes()[1])] = 1.
 
@@ -30,7 +30,12 @@ def forest_garrote(rf, data, labels, group_size=None):
         alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, n_alphas=100,
                                                                    precompute=True, Gram=gram)
         coefs = coefs[:, -1]
-        scale = rf.num_trees()
+
+        # Build the new forest.
+        nnz = coefs.nonzero()[0]
+        nnz_coefs = coefs[nnz]
+        return rf.sub_fg_forest(nnz, nnz_coefs, rf.num_trees())
+
     else:
         # Create the tree groups and find the number of nodes in each group.
         n_groups = rf.num_trees() / group_size
@@ -51,9 +56,11 @@ def forest_garrote(rf, data, labels, group_size=None):
                                                                        n_alphas=100, precompute=True, Gram=gram)
             coef_list.append(coefs[:, -1])
         coefs = numpy.concatenate(coef_list)
-        scale = group_size
 
-    # Build the new forest by keeping all nodes on the path from the root to the nodes with non-zero weight.
-    nnz = coefs.nonzero()[0]
-    nnz_coefs = coefs[nnz]
-    return rf.sub_fg_forest(nnz, nnz_coefs, scale)
+        # Build the new forest by keeping all nodes on the path from the root to the nodes with non-zero weight.
+        nnz = coefs.nonzero()[0]
+        nnz_coefs = coefs[nnz]
+        rf = rf.sub_fg_forest(nnz, nnz_coefs, group_size)
+
+        print "Calling final forest garrote."
+        return rf, forest_garrote(rf, data, labels)
