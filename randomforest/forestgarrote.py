@@ -27,7 +27,7 @@ def forest_garrote(rf, data, labels, group_size=None):
     if group_size is None:
         # Train the Lasso on the whole forest.
         gram = weighted.transpose().dot(weighted)
-        alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, n_alphas=100,
+        alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, alphas=[0.000308811014436],# n_alphas=100,
                                                                    precompute=True, Gram=gram)
 
         coefs = coefs[:, -1]
@@ -53,8 +53,8 @@ def forest_garrote(rf, data, labels, group_size=None):
             print "Computing Lasso for group", i+1, "of", n_groups
             sub_weights = weighted[:, node_slices[i]:node_slices[i+1]]
             gram = sub_weights.transpose().dot(sub_weights)
-            alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(sub_weights, tmp_labels, positive=True,
-                                                                       n_alphas=100, precompute=True, Gram=gram)
+            alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(sub_weights, tmp_labels, positive=True, alphas=[0.000308811014436],#n_alphas=100,
+                                                                       precompute=True, Gram=gram)
             coef_list.append(coefs[:, -1])
         coefs = numpy.concatenate(coef_list)
 
