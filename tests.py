@@ -155,9 +155,10 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
     if predict:
         print "Predicting on a test set with the random forest."
         with Timer("Random forest prediction took %.03f seconds."):
-            pred = rf.predict(test_x)
+            pred, split_counts = rf.predict(test_x, return_split_counts=True)
+        split_counts /= float(len(pred))
         count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
-        print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+        print "%d of %d correct (%.03f%%), used %.03f splits per instance" % (count, len(pred), (100.0*count)/len(pred), split_counts)
 
     if refine:
         print "Refining the random forest using forest garrote."
@@ -176,9 +177,10 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
         if predict:
             print "Predicting on a test set with the forest garrote."
             with Timer("Forest garrote prediction took %.03f seconds."):
-                pred = refined_rf.predict(test_x)
+                pred, split_counts = refined_rf.predict(test_x, return_split_counts=True)
+            split_counts /= float(len(pred))
             count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
-            print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+            print "%d of %d correct (%.03f%%), used %.03f splits per instance" % (count, len(pred), (100.0*count)/len(pred), split_counts)
 
             # print "Predicting on a test set with the forest garrote (version 2)."
             # with Timer("Forest garrote prediction took %.03f seconds."):

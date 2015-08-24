@@ -68,7 +68,8 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
 
 
 def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
-             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values):
+             numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
+             return_split_counts=False):
     """
     Find the leaf index of each instance in data.
 
@@ -76,26 +77,32 @@ def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] c
     :param children: child information of the graph
     :param split_dims: node split dimensions
     :param split_values: node split values
+    :param return_split_counts: if this is True, the number of comparisons is returned
     :return: leaf indices of the given data
     """
     cdef numpy.ndarray[INT_t, ndim=1] indices = numpy.zeros((data.shape[0],), dtype=INT)
-    cdef INT_t i, node
+    cdef INT_t i, node, counts
 
+    counts = 0
     for i in xrange(data.shape[0]):
         node = 0
         while children[node, 0] >= 0:
+            counts += 1
             if data[i, split_dims[node]] < split_values[node]:
                 node = children[node, 0]
             else:
                 node = children[node, 1]
         indices[i] = node
 
-    return indices
+    if return_split_counts:
+        return indices, counts
+    else:
+        return indices
 
 
 def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                   numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                  numpy.ndarray[FLOAT_t, ndim=2] label_probs):
+                  numpy.ndarray[FLOAT_t, ndim=2] label_probs, return_split_counts=False):
     """
     Predict the class probabilities of the given data.
 
@@ -104,20 +111,29 @@ def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim
     :param split_dims: node split dimensions
     :param split_values: node split values
     :param label_probs: label probabilities in each node
+    :param return_split_counts: if this is True, the number of comparisons is returned
     :return: class probabilities of the data
     """
     cdef numpy.ndarray[FLOAT_t, ndim=2] probs = numpy.zeros((data.shape[0], label_probs.shape[1]), dtype=FLOAT)
-    cdef INT_t i, j, node
+    cdef INT_t i, j, node, counts
     cdef FLOAT_t s
 
-    cdef numpy.ndarray[INT_t, ndim=1] indices = leaf_ids(data, children, split_dims, split_values)
+    cdef numpy.ndarray[INT_t, ndim=1] indices
+
+    if return_split_counts:
+        indices, counts = leaf_ids(data, children, split_dims, split_values, return_split_counts=True)
+    else:
+        indices = leaf_ids(data, children, split_dims, split_values)
 
     for i in xrange(data.shape[0]):
         node = indices[i]
         for j in xrange(label_probs.shape[1]):
             probs[i, j] = label_probs[node, j]
 
-    return probs
+    if return_split_counts:
+        return probs, counts
+    else:
+        return probs
 
 
 def node_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,

@@ -624,11 +624,12 @@ class DecisionTreeClassifier(object):
                 split_values[node_id] = node["split_value"]
         return node_children, split_dims, split_values, label_probs
 
-    def predict_proba(self, data):
+    def predict_proba(self, data, return_split_counts=False):
         """
         Predict the class probabilities of the data.
 
         :param data: the data
+        :param return_split_counts: if this is True, the number of comparisons is returned
         :return: class probabilities of the data
         """
         if numpy.isnan(numpy.sum(data)):
@@ -638,9 +639,14 @@ class DecisionTreeClassifier(object):
         node_children, split_dims, split_values, label_probs = self._get_arrays()
 
         # Call the cython probability function.
-        probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
-                                                     split_values, label_probs)
-        return numpy.array(probs)
+        if return_split_counts:
+            probs, counts = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
+                                                                 split_values, label_probs, return_split_counts=True)
+            return numpy.array(probs), counts
+        else:
+            probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
+                                                         split_values, label_probs)
+            return numpy.array(probs)
 
     def predict(self, data):
         """
@@ -827,17 +833,18 @@ def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
     return tree
 
 
-def predict_proba_single_tree(tree_id, data_id):
+def predict_proba_single_tree(tree_id, data_id, return_split_counts=False):
     """
     Predict using the given tree and return the probabilities.
 
     :param tree_id: id of the tree
     :param data_id: id of the data
+    :param return_split_counts: if this is True, the number of comparisons is returned
     :return: class probabilities
     """
     tree = ctypes.cast(tree_id, ctypes.py_object).value
     data = ctypes.cast(data_id, ctypes.py_object).value
-    return tree.predict_proba(data)
+    return tree.predict_proba(data, return_split_counts=return_split_counts)
 
 
 class RandomForestClassifier(object):
@@ -918,39 +925,58 @@ class RandomForestClassifier(object):
         for tree in self._trees[1:]:
             assert (self._label_names == tree.classes()).all()
 
-    def predict_proba(self, data):
+    def predict_proba(self, data, return_split_counts=False):
         """
         Predict the class probabilities of the data.
 
         :param data: the data
+        :param return_split_counts: if this is True, the number of comparisons is returned
         :return: class probabilities of the data
         """
         probs = numpy.zeros((len(self._trees), data.shape[0], len(self._label_names)), dtype=numpy.float_)
         n_jobs = min(self._n_jobs, len(self._trees))
+        counts = 0
         if n_jobs == 1:
             for i, tree in enumerate(self._trees):
-                probs[i, :, :] = tree.predict_proba(data)
+                if return_split_counts:
+                    probs[i, :, :], c = tree.predict_proba(data, return_split_counts=True)
+                    counts += c
+                else:
+                    probs[i, :, :] = tree.predict_proba(data)
         else:
             if platform.python_implementation() != "CPython":
                 raise Exception("You have to use CPython.")
             data_id = id(data)
             with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
-                futures = [(i, executor.submit(predict_proba_single_tree, id(tree), data_id))
+                futures = [(i, executor.submit(predict_proba_single_tree, id(tree), data_id, return_split_counts))
                            for i, tree in enumerate(self._trees)]
                 for i, future in futures:
-                    probs[i, :, :] = future.result()
-        return numpy.mean(probs, axis=0)
+                    if return_split_counts:
+                        probs[i, :, :], c = future.result()
+                        counts += c
+                    else:
+                        probs[i, :, :] = future.result()
+        if return_split_counts:
+            return numpy.mean(probs, axis=0), counts
+        else:
+            return numpy.mean(probs, axis=0)
 
-    def predict(self, data):
+    def predict(self, data, return_split_counts=False):
         """
         Predict classes of the data.
 
         :param data: the data
+        :param return_split_counts: if this is True, the number of comparisons is returned
         :return: classes of the data
         """
-        probs = self.predict_proba(data)
-        pred = numpy.argmax(probs, axis=1)
-        return self._label_names[pred]
+        if return_split_counts:
+            probs, counts = self.predict_proba(data, return_split_counts=True)
+            pred = numpy.argmax(probs, axis=1)
+            return self._label_names[pred], counts
+        else:
+            probs = self.predict_proba(data)
+            pred = numpy.argmax(probs, axis=1)
+            return self._label_names[pred]
 
     def node_weights(self):
         """
