@@ -29,6 +29,10 @@ def forest_garrote(rf, data, labels, group_size=None):
         gram = weighted.transpose().dot(weighted)
         alphas, coefs, dual_gaps = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, n_alphas=100,
                                                                    precompute=True, Gram=gram)
+
+        import IPython
+        IPython.embed()
+
         coefs = coefs[:, -1]
 
         # Build the new forest.
@@ -60,7 +64,4 @@ def forest_garrote(rf, data, labels, group_size=None):
         # Build the new forest by keeping all nodes on the path from the root to the nodes with non-zero weight.
         nnz = coefs.nonzero()[0]
         nnz_coefs = coefs[nnz]
-        rf = rf.sub_fg_forest(nnz, nnz_coefs, group_size)
-
-        print "Calling final forest garrote."
-        return rf, forest_garrote(rf, data, labels)
+        return rf.sub_fg_forest(nnz, nnz_coefs, group_size)

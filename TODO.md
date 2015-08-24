@@ -1,5 +1,6 @@
 # TODO
 
+* Get implementation independent performance measures: Count the split comparisons in the prediction step.
 * Try the following in the prediction step:
 
   Current version: `predicted_class = argmax(mean(probabilities))`

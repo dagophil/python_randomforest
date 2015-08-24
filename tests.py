@@ -162,9 +162,9 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
     if refine:
         print "Refining the random forest using forest garrote."
         with Timer("Refining took %.03f seconds."):
-            refined_rf, refined_rf_2 = forest_garrote(rf, train_x, train_y, group_size=group_size)
+            refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
         print "The old forest has %d nodes, the refined forest has %d nodes." % (rf.num_nodes(), refined_rf.num_nodes())
-        print "Version 2 has %d nodes." % refined_rf_2.num_nodes()
+        # print "Version 2 has %d nodes." % refined_rf_2.num_nodes()
 
         if save:
             f0, f1 = os.path.split(filename)
@@ -180,11 +180,11 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
             count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
             print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
-            print "Predicting on a test set with the forest garrote (version 2)."
-            with Timer("Forest garrote prediction took %.03f seconds."):
-                pred = refined_rf_2.predict(test_x)
-            count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
-            print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
+            # print "Predicting on a test set with the forest garrote (version 2)."
+            # with Timer("Forest garrote prediction took %.03f seconds."):
+            #     pred = refined_rf_2.predict(test_x)
+            # count = sum([1 if a == b else 0 for a, b in zip(test_y, pred)])
+            # print "%d of %d correct (%.03f%%)" % (count, len(pred), (100.0*count)/len(pred))
 
 
 def parse_command_line():
