@@ -143,9 +143,11 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
                                                  bootstrap_sampling=True, use_sample_label_count=False, resample_count=None,
                                                  # bootstrap_sampling=False, use_sample_label_count=True, resample_count=None,  # does not make sense
                                                  # resample_count=20,
+                                                 # loggamma_tau=1e-36,
                                                  )
         with Timer("Training took %.03f seconds"):
             rf.fit(train_x, train_y)
+        print "The random forest has %d nodes." % rf.num_nodes()
 
     if save and not load:
         print "Saving random forest to file %s." % filename
@@ -164,7 +166,7 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
         print "Refining the random forest using forest garrote."
         with Timer("Refining took %.03f seconds."):
             refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
-        print "The old forest has %d nodes, the refined forest has %d nodes." % (rf.num_nodes(), refined_rf.num_nodes())
+        print "The refined forest has %d nodes." % refined_rf.num_nodes()
 
         if save:
             f0, f1 = os.path.split(filename)

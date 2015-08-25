@@ -240,14 +240,14 @@ class DecisionTreeClassifier(object):
             Check the following termination criteria on the count array:
             number of labels, min_count of instances, loggamma
             """
+            s = numpy.sum(counts)
             if len(numpy.nonzero(counts)[0]) <= 1:
                 return True
             if self._min_count is not None:
-                if numpy.sum(counts) <= self._min_count:
+                if s <= self._min_count:
                     return True
             if self._loggamma_tau is not None:
-                na, nb = counts[0], counts[1]
-                if gammaln(na+1) + gammaln(nb+1) - gammaln(na+nb+1) >= numpy.log(self._loggamma_tau / 2):
+                if numpy.sum(gammaln(counts+1)) - gammaln(s+1) >= numpy.log(self._loggamma_tau / 2.0):
                     return True
             return False
 
