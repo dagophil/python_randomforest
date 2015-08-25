@@ -12,6 +12,7 @@
 * Add termination criterion: Stop if log(number of labels in node) <= threshold.
 * Add termination criterion (Köthe white paper): Stop if lga(n_left + 1) + lga(n_right + 1) - lga(n_left + n_right + 1) >= log(a / 2) for some small a and lga = loggamma.
 * Compare the termination criteria.
+* Compare matrix rank of the leaf index vectors before and after forest garrote.
   
   
 ### Thesis questions

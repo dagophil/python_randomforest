@@ -11,6 +11,7 @@ from timer import Timer
 import ctypes
 import platform
 import scipy.sparse
+from scipy.special import gammaln
 
 
 class GiniUpdater(object):
@@ -61,7 +62,7 @@ class GiniUpdater(object):
 class DecisionTreeClassifier(object):
 
     def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True, resample_count=None,
-                 max_depth=None, min_count=None):
+                 max_depth=None, min_count=None, loggamma_tau=None):
         """
         Create a DecisionTreeClassifier.
 
@@ -88,6 +89,8 @@ class DecisionTreeClassifier(object):
             self._use_sample_label_count = False
             self._bootstrap_sampling = False
         self._depth = 0
+        assert loggamma_tau is None or (0 < loggamma_tau <= 1)
+        self._loggamma_tau = loggamma_tau
 
     def to_string(self):
         """
@@ -101,7 +104,8 @@ class DecisionTreeClassifier(object):
                             "use_sample_label_count": self._use_sample_label_count,
                             "resample_count": self._resample_count,
                             "max_depth": self._max_depth,
-                            "min_count": self._min_count}
+                            "min_count": self._min_count,
+                            "loggamma_tau": self._loggamma_tau}
 
         # Get the graph information as numpy arrays.
         arrs = self._get_arrays()
@@ -224,37 +228,34 @@ class DecisionTreeClassifier(object):
         :param node_id: the node id
         :return: true if a termination criteria is met
         """
-        n = self._graph.node[node_id]
-        if "depth" in n:
-            self._depth = max(self._depth, n["depth"])
+        node = self._graph.node[node_id]
+        if "depth" in node:
+            self._depth = max(self._depth, node["depth"])
             if self._max_depth is not None:
-                if n["depth"] >= self._max_depth:
+                if node["depth"] >= self._max_depth:
                     return True
-        if "label_counts" in n:
-            count = 0
-            for c in n["label_counts"]:
-                if c > 0:
-                    count += 1
-            if count <= 1:
+
+        def check_counts(counts):
+            """
+            Check the following termination criteria on the count array:
+            number of labels, min_count of instances, loggamma
+            """
+            if len(numpy.nonzero(counts)[0]) <= 1:
                 return True
-        if "sample_label_counts" in n:
-            count = 0
-            for c in n["sample_label_counts"]:
-                if c > 0:
-                    count += 1
-            if count <= 1:
+            if self._min_count is not None:
+                if numpy.sum(counts) <= self._min_count:
+                    return True
+            if self._loggamma_tau is not None:
+                na, nb = counts[0], counts[1]
+                if gammaln(na+1) + gammaln(nb+1) - gammaln(na+nb+1) >= numpy.log(self._loggamma_tau / 2):
+                    return True
+            return False
+
+        if "label_counts" in node:
+            if check_counts(node["label_counts"]):
                 return True
-        if self._min_count is not None and "label_counts" in n:
-            count = 0
-            for c in n["label_counts"]:
-                count += c
-            if count <= self._min_count:
-                return True
-        if self._min_count is not None and "sample_label_counts" in n:
-            count = 0
-            for c in n["sample_label_counts"]:
-                count += c
-            if count <= self._min_count:
+        if "sample_label_counts" in node:
+            if check_counts(node["sample_label_counts"]):
                 return True
 
         return False
