@@ -23,7 +23,8 @@ def forest_garrote(rf, data, labels, group_size=None):
     tmp_labels = numpy.zeros(labels.shape, dtype=numpy.float_)
     tmp_labels[numpy.where(labels == rf.classes()[1])] = 1.
 
-    # TODO: Find a better value for n_alphas.
+    # TODO: Find a better alpha value.
+
     if group_size is None:
         # Train the Lasso on the whole forest.
         gram = weighted.transpose().dot(weighted)
@@ -48,6 +49,7 @@ def forest_garrote(rf, data, labels, group_size=None):
         node_slices = numpy.cumsum([0]+n_nodes)
 
         # Train a Lasso for each group.
+        # TODO: Parallelize this.
         coef_list = []
         for i in xrange(n_groups):
             print "Computing Lasso for group", i+1, "of", n_groups
@@ -61,4 +63,14 @@ def forest_garrote(rf, data, labels, group_size=None):
         # Build the new forest by keeping all nodes on the path from the root to the nodes with non-zero weight.
         nnz = coefs.nonzero()[0]
         nnz_coefs = coefs[nnz]
-        return rf.sub_fg_forest(nnz, nnz_coefs, group_size)
+        rf = rf.sub_fg_forest(nnz, nnz_coefs, group_size)
+
+        # Apply an additional linear regression (least squares).
+        # TODO: Test alternatives (ridge regression).
+        weighted = rf.weighted_index_vectors(data).tocsc()
+        lr = sklearn.linear_model.LinearRegression()
+        lr.fit(weighted, tmp_labels)
+        coefs = lr.coef_
+        nnz = coefs.nonzero()[0]
+        nnz_coefs = coefs[nnz]
+        return rf.sub_fg_forest(nnz, nnz_coefs, rf.num_trees() * rf.num_trees())
