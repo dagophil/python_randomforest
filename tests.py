@@ -143,7 +143,7 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
                                                  bootstrap_sampling=True, use_sample_label_count=False, resample_count=None,
                                                  # bootstrap_sampling=False, use_sample_label_count=True, resample_count=None,  # does not make sense
                                                  # resample_count=20,
-                                                 # loggamma_tau=1e-36,
+                                                 # loggamma_tau=1e-6,
                                                  split_selection="gini"
                                                  )
         with Timer("Training took %.03f seconds"):
