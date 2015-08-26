@@ -74,7 +74,7 @@ class ScoreUpdater(object):
 class DecisionTreeClassifier(object):
 
     def __init__(self, n_rand_dims="all", bootstrap_sampling=True, use_sample_label_count=True, resample_count=None,
-                 max_depth=None, min_count=None, loggamma_tau=None):
+                 max_depth=None, min_count=None, loggamma_tau=None, split_selection="gini"):
         """
         Create a DecisionTreeClassifier.
 
@@ -86,6 +86,8 @@ class DecisionTreeClassifier(object):
             the best split from there
         :param max_depth: maximum tree depth
         :param min_count: do not split a node if its number of instances is <= min_count
+        :param loggamma_tau: tau value of the loggamma termination criterion
+        :param split_selection: how to choose the split ("gini", "ksd")
         """
         self._n_rand_dims = n_rand_dims
         self._graph = networkx.DiGraph()
@@ -103,6 +105,15 @@ class DecisionTreeClassifier(object):
         self._depth = 0
         assert loggamma_tau is None or (0 < loggamma_tau <= 1)
         self._loggamma_tau = loggamma_tau
+        if split_selection == "gini":
+            self._score_winner = "lowest"
+            self._score_func = randomforest_functions.find_best_gini
+        elif split_selection == "ksd":
+            self._score_winner = "highest"
+            self._score_func = randomforest_functions.find_best_ksd
+        else:
+            raise Exception("Unknown split selection: %s" % split_selection)
+        self._split_selection = split_selection
 
     def to_string(self):
         """
@@ -117,7 +128,8 @@ class DecisionTreeClassifier(object):
                             "resample_count": self._resample_count,
                             "max_depth": self._max_depth,
                             "min_count": self._min_count,
-                            "loggamma_tau": self._loggamma_tau}
+                            "loggamma_tau": self._loggamma_tau,
+                            "split_selection": self._split_selection}
 
         # Get the graph information as numpy arrays.
         arrs = self._get_arrays()
@@ -320,21 +332,21 @@ class DecisionTreeClassifier(object):
                 label_priors = node["label_counts"]
 
             # Find the best split.
-            gini_updater = ScoreUpdater(index=0, dims=0)
+            score_updater = ScoreUpdater(winner=self._score_winner, index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
                 feats = data[node_instances, d]
                 sorted_instances = numpy.argsort(feats)
                 sorted_labels = labels[node_instances[sorted_instances]]
-                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
+                score, index, split_found = self._score_func(sorted_labels, label_priors)
                 if split_found:
-                    gini_updater.update(gini, index=index, dim=d)
+                    score_updater.update(score, index=index, dim=d)
 
             # Do not split if no split was found.
-            if not gini_updater.updated():
+            if not score_updater.updated():
                 continue
-            best_index = gini_updater["index"]
-            best_dim = gini_updater["dim"]
+            best_index = score_updater["index"]
+            best_dim = score_updater["dim"]
 
             # Sort the node instances.
             feats = data[node_instances, best_dim]
@@ -415,21 +427,21 @@ class DecisionTreeClassifier(object):
             depth = node["depth"]
 
             # Find the best split.
-            gini_updater = ScoreUpdater(index=0, dims=0)
+            score_updater = ScoreUpdater(winner=self._score_winner, index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
                 feats = data[node_instances, d]
                 sorted_instances = numpy.argsort(feats)
                 sorted_labels = labels[node_instances[sorted_instances]]
-                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
+                score, index, split_found = self._score_func(sorted_labels, label_priors)
                 if split_found:
-                    gini_updater.update(gini, index=index, dim=d)
+                    score_updater.update(score, index=index, dim=d)
 
             # Do not split if not split was found.
-            if not gini_updater.updated():
+            if not score_updater.updated():
                 continue
-            best_index = gini_updater["index"]
-            best_dim = gini_updater["dim"]
+            best_index = score_updater["index"]
+            best_dim = score_updater["dim"]
 
             # Sort the sample index vector.
             feats = data[node_instances, best_dim]
@@ -524,21 +536,21 @@ class DecisionTreeClassifier(object):
             depth = node["depth"]
 
             # Find the best split.
-            gini_updater = ScoreUpdater(index=0, dims=0)
+            score_updater = ScoreUpdater(winner=self._score_winner, index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
                 feats = data[node_instances, d]
                 sorted_instances = numpy.argsort(feats)
                 sorted_labels = labels[node_instances[sorted_instances]]
-                gini, index, split_found = randomforest_functions.find_best_gini(sorted_labels, label_priors)
+                score, index, split_found = self._score_func(sorted_labels, label_priors)
                 if split_found:
-                    gini_updater.update(gini, index=index, dim=d)
+                    score_updater.update(score, index=index, dim=d)
 
             # Do not split if no split was found.
-            if not gini_updater.updated():
+            if not score_updater.updated():
                 continue
-            best_index = gini_updater["index"]
-            best_dim = gini_updater["dim"]
+            best_index = score_updater["index"]
+            best_dim = score_updater["dim"]
 
             # Sort the index vector.
             feats = data[node_instances, best_dim]
@@ -592,7 +604,7 @@ class DecisionTreeClassifier(object):
                 self._fit_use_sample_label_count(data, labels)
                 return
             else:
-                raise Exception("Unknown parameters (resample_count is None).")
+                raise Exception("DecisionTreeClassifier.fit(): Unknown parameters.")
         else:
             self._fit_resample_count(data, labels)
             return
