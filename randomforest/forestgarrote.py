@@ -24,8 +24,6 @@ def forest_garrote(rf, data, labels, group_size=None, alpha=0.0003):
     tmp_labels = numpy.zeros(labels.shape, dtype=numpy.float_)
     tmp_labels[numpy.where(labels == rf.classes()[1])] = 1.
 
-    # TODO: Find a better alpha value.
-
     if group_size is None:
         # Train the Lasso on the whole forest.
         coefs = sklearn.linear_model.lasso_path(weighted, tmp_labels, positive=True, alphas=[alpha])[1]

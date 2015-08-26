@@ -14,40 +14,52 @@ import scipy.sparse
 from scipy.special import gammaln
 
 
-class GiniUpdater(object):
+class ScoreUpdater(object):
 
-    def __init__(self, **attrs):
+    def __init__(self, winner="lowest", **attrs):
         """
-        Create the GiniUpdater and initialize it with the given attributes.
+        Create the ScoreUpdater and initialize it with the given attributes.
 
         :param attrs: attribute dict
         """
         self._attrs = attrs
-        self._best_gini = None
+        self._best_score = None
+        if winner == "lowest":
+            self._check = self._check_lowest
+        elif winner == "highest":
+            self._check = self._check_highest
+        else:
+            raise Exception("ScoreUpdater: Unknown option winner=%s" % winner)
 
-    def update(self, gini, **attrs):
+    def _check_lowest(self, score):
+        return score < self._best_score
+
+    def _check_highest(self, score):
+        return score > self._best_score
+
+    def update(self, score, **attrs):
         """
-        If called for the first time: Save gini and update the attribute dict.
-        Else: if gini < saved gini, update the gini and the attribute dict.
+        If called for the first time: Save score and update the attribute dict.
+        Else: if score < saved score, update the score and the attribute dict.
 
-        :param gini: the gini value
+        :param score: the score value
         :param attrs: attribute dict
         """
-        if self._best_gini is None:
-            self._best_gini = gini
+        if self._best_score is None:
+            self._best_score = score
             self._attrs.update(attrs)
         else:
-            if gini < self._best_gini:
-                self._best_gini = gini
+            if self._check(score):
+                self._best_score = score
                 self._attrs.update(attrs)
 
     def updated(self):
         """
-        Return True if the gini was updated at least once.
+        Return True if the score was updated at least once.
 
-        :return: whether the gini was updated or not
+        :return: whether the score was updated or not
         """
-        return self._best_gini is not None
+        return self._best_score is not None
 
     def __getitem__(self, item):
         """
@@ -308,7 +320,7 @@ class DecisionTreeClassifier(object):
                 label_priors = node["label_counts"]
 
             # Find the best split.
-            gini_updater = GiniUpdater(index=0, dims=0)
+            gini_updater = ScoreUpdater(index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
                 feats = data[node_instances, d]
@@ -403,7 +415,7 @@ class DecisionTreeClassifier(object):
             depth = node["depth"]
 
             # Find the best split.
-            gini_updater = GiniUpdater(index=0, dims=0)
+            gini_updater = ScoreUpdater(index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
                 feats = data[node_instances, d]
@@ -512,7 +524,7 @@ class DecisionTreeClassifier(object):
             depth = node["depth"]
 
             # Find the best split.
-            gini_updater = GiniUpdater(index=0, dims=0)
+            gini_updater = ScoreUpdater(index=0, dims=0)
             split_dims = random.sample(dims, n_rand_dims)
             for d in split_dims:
                 feats = data[node_instances, d]
