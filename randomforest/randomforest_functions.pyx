@@ -17,23 +17,21 @@ ctypedef numpy.uint8_t UINT8_t
 
 def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] priors):
     """
-    Given an array with classes, find the split index where the gini is best.
+    Given an array with classes, find the split index where the gini is best (lowest).
 
     :param arr: array with classes
     :param priors: prior label count
     :return: best_gini, index, split_found
     """
-    assert arr.dtype == INT and priors.dtype == INT
-
     cdef numpy.ndarray[INT_t, ndim=1] counts = numpy.zeros((len(priors,)), dtype=INT)
-    cdef double count_left = 0
-    cdef double count_right = arr.shape[0]
-    cdef double count_total = count_right
-    cdef double best_gini = -1
+    cdef FLOAT_t count_left = 0
+    cdef FLOAT_t count_right = arr.shape[0]
+    cdef FLOAT_t count_total = count_right
+    cdef FLOAT_t best_gini = -1
     cdef INT_t best_index = 0
     cdef INT_t i, j, c
     cdef INT_t l
-    cdef double gini_left, gini_right, p_left, p_right, gini
+    cdef FLOAT_t gini_left, gini_right, p_left, p_right, gini
     cdef bint split_found = False
     for i in xrange(arr.shape[0]-1):
         l = arr[i]
@@ -65,6 +63,46 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
                 best_index = i
 
     return best_gini, best_index+1, split_found
+
+
+def find_best_ksd(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] priors):
+    """
+    Given an array with classes, find the split index where the kolmogorov-smirnov distance is best (highest).
+
+    :param arr: array with classes
+    :param priors: prior label count
+    :return: best_ksd, index, split_found
+    """
+    cdef numpy.ndarray[FLOAT_t, ndim=1] increment = numpy.zeros((len(priors,)), dtype=FLOAT)
+    cdef numpy.ndarray[FLOAT_t, ndim=1] relative_counts = numpy.zeros((len(priors,)), dtype=FLOAT)
+    cdef INT_t i, j, k, l
+    cdef INT_t best_index
+    cdef FLOAT_t score
+    cdef FLOAT_t best_score = -1
+    cdef bint split_found = False
+
+    for i in xrange(priors.shape[0]):
+        increment[i] = 1.0 / priors[i]
+
+    for i in xrange(arr.shape[0]-1):
+        l = arr[i]
+        relative_counts[l] += increment[l]
+
+        # Skip if there is no new split.
+        if l == arr[i+1]:
+            continue
+
+        split_found = True
+
+        score = 1.0
+        for j in xrange(priors.shape[0]-1):
+            for k in xrange(j+1, priors.shape[0]):
+                score *= abs(relative_counts[j] - relative_counts[k])
+        if score > best_score:
+            best_score = score
+            best_index = i
+
+    return best_score, best_index+1, split_found
 
 
 def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
