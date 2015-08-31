@@ -609,17 +609,19 @@ class DecisionTreeClassifier(object):
             self._fit_resample_count(data, labels)
             return
 
-    def _get_arrays(self):
+    def _get_arrays(self, return_node_sizes=False):
         """
         Return the children, the split dimensions, the split values and the label probabilities of each node as numpy arrays.
 
-        :return: node_children, split_dimensions, split_values, label_probs
+        :param return_node_sizes: if this is True, the number of instances in each node is returned
+        :return: node_children, split_dimensions, split_values, label_probs, (optional: node_sizes)
         """
         num_nodes = self._graph.number_of_nodes()
         node_children = -numpy.ones((num_nodes, 2), numpy.int_)
         split_dims = -numpy.ones((num_nodes,), numpy.int_)
         split_values = numpy.zeros((num_nodes,), numpy.float_)
         label_probs = numpy.zeros((num_nodes, len(self._label_names)), numpy.float_)
+        node_sizes = numpy.zeros((num_nodes,), numpy.int_)
         for node_id in self._graph.nodes():
             node = self._graph.node[node_id]
 
@@ -631,9 +633,9 @@ class DecisionTreeClassifier(object):
                     has_labels = True
             else:
                 assert "label_counts" in node
-                s = float(node["label_counts"].sum())
+                node_sizes[node_id] = int(node["label_counts"].sum())
                 for j, c in enumerate(node["label_counts"]):
-                    label_probs[node_id, j] = c/s
+                    label_probs[node_id, j] = c/float(node_sizes[node_id])
                     if c > 0:
                         has_labels = True
 
@@ -647,40 +649,47 @@ class DecisionTreeClassifier(object):
                 node_children[node_id, 1] = n1_id
                 split_dims[node_id] = node["split_dim"]
                 split_values[node_id] = node["split_value"]
-        return node_children, split_dims, split_values, label_probs
+        if return_node_sizes:
+            return node_children, split_dims, split_values, label_probs, node_sizes
+        else:
+            return node_children, split_dims, split_values, label_probs
 
-    def predict_proba(self, data, return_split_counts=False):
+    def predict_proba(self, data, return_split_counts=False, node_weights=False):
         """
         Predict the class probabilities of the data.
 
         :param data: the data
         :param return_split_counts: if this is True, the number of comparisons is returned
+        :param node_weights: if this is True, the probabilities are multiplied with the number of instances in the node
         :return: class probabilities of the data
         """
         if numpy.isnan(numpy.sum(data)):
             raise Exception("The input array contains NaNs")
 
         # Get the arrays with the node information.
-        node_children, split_dims, split_values, label_probs = self._get_arrays()
+        node_children, split_dims, split_values, label_probs, node_sizes = self._get_arrays(return_node_sizes=True)
 
         # Call the cython probability function.
         if return_split_counts:
             probs, counts = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
-                                                                 split_values, label_probs, return_split_counts=True)
+                                                                 split_values, label_probs, node_sizes,
+                                                                 return_split_counts=True, node_weights=node_weights)
             return numpy.array(probs), counts
         else:
             probs = randomforest_functions.predict_proba(data.astype(numpy.float_), node_children, split_dims,
-                                                         split_values, label_probs)
+                                                         split_values, label_probs, node_sizes,
+                                                         node_weights=node_weights)
             return numpy.array(probs)
 
-    def predict(self, data):
+    def predict(self, data, node_weights=False):
         """
         Predict classes of the data.
 
         :param data: the data
+        :param node_weights: if this is True, the probabilities are multiplied with the number of instances in the node
         :return: classes of the data
         """
-        probs = self.predict_proba(data)
+        probs = self.predict_proba(data, node_weights=node_weights)
         pred = numpy.argmax(probs, axis=1)
         return self._label_names[pred]
 
@@ -858,18 +867,19 @@ def train_single_tree(tree_id, data_id, labels_id, *args, **kwargs):
     return tree
 
 
-def predict_proba_single_tree(tree_id, data_id, return_split_counts=False):
+def predict_proba_single_tree(tree_id, data_id, return_split_counts=False, node_weights=False):
     """
     Predict using the given tree and return the probabilities.
 
     :param tree_id: id of the tree
     :param data_id: id of the data
     :param return_split_counts: if this is True, the number of comparisons is returned
+    :param node_weights: if this is True, the probabilities are multiplied with the number of instances in the node
     :return: class probabilities
     """
     tree = ctypes.cast(tree_id, ctypes.py_object).value
     data = ctypes.cast(data_id, ctypes.py_object).value
-    return tree.predict_proba(data, return_split_counts=return_split_counts)
+    return tree.predict_proba(data, return_split_counts=return_split_counts, node_weights=node_weights)
 
 
 class RandomForestClassifier(object):
@@ -950,12 +960,13 @@ class RandomForestClassifier(object):
         for tree in self._trees[1:]:
             assert (self._label_names == tree.classes()).all()
 
-    def predict_proba(self, data, return_split_counts=False):
+    def predict_proba(self, data, return_split_counts=False, node_weights=False):
         """
         Predict the class probabilities of the data.
 
         :param data: the data
         :param return_split_counts: if this is True, the number of comparisons is returned
+        :param node_weights: if this is True, the probabilities are multiplied with the number of instances in the node
         :return: class probabilities of the data
         """
         probs = numpy.zeros((len(self._trees), data.shape[0], len(self._label_names)), dtype=numpy.float_)
@@ -964,16 +975,16 @@ class RandomForestClassifier(object):
         if n_jobs == 1:
             for i, tree in enumerate(self._trees):
                 if return_split_counts:
-                    probs[i, :, :], c = tree.predict_proba(data, return_split_counts=True)
+                    probs[i, :, :], c = tree.predict_proba(data, return_split_counts=True, node_weights=node_weights)
                     counts += c
                 else:
-                    probs[i, :, :] = tree.predict_proba(data)
+                    probs[i, :, :] = tree.predict_proba(data, node_weights=node_weights)
         else:
             if platform.python_implementation() != "CPython":
                 raise Exception("You have to use CPython.")
             data_id = id(data)
             with concurrent.futures.ProcessPoolExecutor(n_jobs) as executor:
-                futures = [(i, executor.submit(predict_proba_single_tree, id(tree), data_id, return_split_counts))
+                futures = [(i, executor.submit(predict_proba_single_tree, id(tree), data_id, return_split_counts, node_weights))
                            for i, tree in enumerate(self._trees)]
                 for i, future in futures:
                     if return_split_counts:
@@ -981,25 +992,32 @@ class RandomForestClassifier(object):
                         counts += c
                     else:
                         probs[i, :, :] = future.result()
-        if return_split_counts:
-            return numpy.mean(probs, axis=0), counts
-        else:
-            return numpy.mean(probs, axis=0)
 
-    def predict(self, data, return_split_counts=False):
+        if node_weights:
+            res = numpy.sum(probs, axis=0)
+        else:
+            res = numpy.mean(probs, axis=0)
+
+        if return_split_counts:
+            return res, counts
+        else:
+            return res
+
+    def predict(self, data, return_split_counts=False, node_weights=False):
         """
         Predict classes of the data.
 
         :param data: the data
         :param return_split_counts: if this is True, the number of comparisons is returned
+        :param node_weights: if this is True, the probabilities are multiplied with the number of instances in the node
         :return: classes of the data
         """
         if return_split_counts:
-            probs, counts = self.predict_proba(data, return_split_counts=True)
+            probs, counts = self.predict_proba(data, return_split_counts=True, node_weights=node_weights)
             pred = numpy.argmax(probs, axis=1)
             return self._label_names[pred], counts
         else:
-            probs = self.predict_proba(data)
+            probs = self.predict_proba(data, node_weights=node_weights)
             pred = numpy.argmax(probs, axis=1)
             return self._label_names[pred]
 

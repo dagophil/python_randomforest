@@ -2,13 +2,7 @@
 
 * Find a good value for alpha so the lasso can be replaced by a single coordinate descent
 * Parallelize the grouped forest garrote.
-* Try the following in the prediction step:
-
-  Current version: `predicted_class = argmax(mean(probabilities))`
-  
-  Todo version: `predicted_class = argmax(sum(label_count))`
-  
-* Compare the termination criteria.
+* Compare the termination criteria and the other options using cross validation.
   
   
 ### Open questions

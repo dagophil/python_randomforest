@@ -140,7 +140,8 @@ def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] c
 
 def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
                   numpy.ndarray[INT_t, ndim=1] split_dims, numpy.ndarray[FLOAT_t, ndim=1] split_values,
-                  numpy.ndarray[FLOAT_t, ndim=2] label_probs, return_split_counts=False):
+                  numpy.ndarray[FLOAT_t, ndim=2] label_probs, numpy.ndarray[INT_t, ndim=1] node_sizes,
+                  return_split_counts=False, node_weights=False):
     """
     Predict the class probabilities of the given data.
 
@@ -149,7 +150,9 @@ def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim
     :param split_dims: node split dimensions
     :param split_values: node split values
     :param label_probs: label probabilities in each node
+    :param node_sizes: number of labels in each node
     :param return_split_counts: if this is True, the number of comparisons is returned
+    :param node_weights: if this is True, the probabilities are multiplied with the number of instances in the node
     :return: class probabilities of the data
     """
     cdef numpy.ndarray[FLOAT_t, ndim=2] probs = numpy.zeros((data.shape[0], label_probs.shape[1]), dtype=FLOAT)
@@ -166,7 +169,10 @@ def predict_proba(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim
     for i in xrange(data.shape[0]):
         node = indices[i]
         for j in xrange(label_probs.shape[1]):
-            probs[i, j] = label_probs[node, j]
+            if node_weights:
+                probs[i, j] = label_probs[node, j] * node_sizes[node]
+            else:
+                probs[i, j] = label_probs[node, j]
 
     if return_split_counts:
         return probs, counts
