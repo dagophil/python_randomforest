@@ -111,6 +111,9 @@ class DecisionTreeClassifier(object):
         elif split_selection == "ksd":
             self._score_winner = "highest"
             self._score_func = randomforest_functions.find_best_ksd
+        elif split_selection == "information_gain":
+            self._score_winner = "lowest"
+            self._score_func = randomforest_functions.find_best_ig
         else:
             raise Exception("Unknown split selection: %s" % split_selection)
         self._split_selection = split_selection

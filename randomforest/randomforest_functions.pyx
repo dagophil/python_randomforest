@@ -4,6 +4,7 @@ import numpy
 cimport numpy
 cimport cython
 import scipy.sparse
+from libc.math cimport log
 
 FLOAT = numpy.float_
 ctypedef numpy.float_t FLOAT_t
@@ -26,8 +27,7 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
     cdef numpy.ndarray[INT_t, ndim=1] counts = numpy.zeros((len(priors,)), dtype=INT)
     cdef FLOAT_t count_left = 0
     cdef FLOAT_t count_right = arr.shape[0]
-    cdef FLOAT_t count_total = count_right
-    cdef FLOAT_t best_gini = -1
+    cdef FLOAT_t best_gini = arr.shape[0]
     cdef INT_t best_index = 0
     cdef INT_t i, j, c
     cdef INT_t l
@@ -54,13 +54,9 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
             gini_right -= p_right*p_right
         gini = count_left*gini_left + count_right*gini_right
 
-        if best_gini < 0:
+        if gini < best_gini:
             best_gini = gini
             best_index = i
-        else:
-            if gini < best_gini:
-                best_gini = gini
-                best_index = i
 
     return best_gini, best_index+1, split_found
 
@@ -103,6 +99,51 @@ def find_best_ksd(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1]
             best_index = i
 
     return best_score, best_index+1, split_found
+
+
+def find_best_ig(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] priors):
+    """
+    Given an array with classes, find the split index where the information gain is best (lowest).
+
+    :param arr: array with classes
+    :param priors: prior label count
+    :return: best_ig, index, split_found
+    """
+    cdef numpy.ndarray[INT_t, ndim=1] counts = numpy.zeros((len(priors,)), dtype=INT)
+    cdef FLOAT_t count_left = 0
+    cdef FLOAT_t count_right = arr.shape[0]
+    cdef FLOAT_t best_ig = arr.shape[0] * log(float(priors.shape[0]))
+    cdef FLOAT_t ig
+    cdef INT_t best_index
+    cdef INT_t l
+    cdef INT_t i, j, c, cc
+    cdef bint split_found = False
+
+    for i in xrange(arr.shape[0]-1):
+        l = arr[i]
+        counts[l] += 1
+        count_left += 1
+        count_right -= 1
+
+        # Skip if there is no new split.
+        if l == arr[i+1]:
+            continue
+
+        split_found = True
+        ig = 0
+        for j in xrange(counts.shape[0]):
+            c = counts[j]
+            if c != 0:
+                ig -= c * log(c / count_left)
+            cc = priors[j] - c
+            if cc != 0:
+                ig -= cc * log(cc / count_right)
+
+        if ig < best_ig:
+            best_ig = ig
+            best_index = i
+
+    return best_ig, best_index+1, split_found
 
 
 def leaf_ids(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, ndim=2] children,
