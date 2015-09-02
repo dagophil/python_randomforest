@@ -17,10 +17,10 @@ def load_neuro_data():
     :return: train_x, train_y, test_x, test_y
     """
     # Load the data.
-    train_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/train/ffeat_br_segid0.h5", "ffeat_br")
-    train_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/train/gt_face_segid0.h5", "gt_face")[:, 0])
-    test_x = vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/test/ffeat_br_segid0.h5", "ffeat_br")
-    test_y = numpy.array(vigra.readHDF5("/home/philip/data/neuro_rf_test_data/niko/test/gt_face_segid0.h5", "gt_face")[:, 0])
+    train_x = vigra.readHDF5("data/neuro/train/ffeat_br_segid0.h5", "ffeat_br")
+    train_y = numpy.array(vigra.readHDF5("data/neuro/train/gt_face_segid0.h5", "gt_face")[:, 0])
+    test_x = vigra.readHDF5("data/neuro/test/ffeat_br_segid0.h5", "ffeat_br")
+    test_y = numpy.array(vigra.readHDF5("data/neuro/test/gt_face_segid0.h5", "gt_face")[:, 0])
     assert train_x.shape[0] == train_y.shape[0]
     assert test_x.shape[0] == test_y.shape[0]
     assert train_x.shape[1] == test_x.shape[1]
@@ -44,10 +44,10 @@ def load_data(labels=None):
     :return: train_x, train_y, test_x, test_y
     """
     # Load the data.
-    train_x = numpy.array(vigra.readHDF5("data/train.h5", "data").transpose())
-    train_y = vigra.readHDF5("data/train.h5", "labels")
-    test_x = numpy.array(vigra.readHDF5("data/test.h5", "data").transpose())
-    test_y = vigra.readHDF5("data/test.h5", "labels")
+    train_x = numpy.array(vigra.readHDF5("data/mnist/train.h5", "data").transpose())
+    train_y = vigra.readHDF5("data/mnist/train.h5", "labels")
+    test_x = numpy.array(vigra.readHDF5("data/mnist/test.h5", "data").transpose())
+    test_y = vigra.readHDF5("data/mnist/test.h5", "labels")
 
     # Reduce the data to the given labels.
     if labels is not None:
@@ -167,8 +167,8 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
     if refine:
         print "Refining the random forest using forest garrote."
         with Timer("Refining took %.03f seconds."):
-            # refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
-            refined_rf = global_refinement(rf, train_x, train_y)
+            refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
+            # refined_rf = global_refinement(rf, train_x, train_y)
         print "The refined forest has %d nodes." % refined_rf.num_nodes()
 
         if save:
