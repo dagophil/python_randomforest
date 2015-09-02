@@ -744,8 +744,11 @@ class DecisionTreeClassifier(object):
         node_children, split_dims, split_values, label_probs = self._get_arrays()
         if self._depth == 0:
             print "Warning: Tree depth is zero."
+            depth = 1
+        else:
+            depth = self._depth
         indices = randomforest_functions.node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
-                                                         split_values, self._depth)
+                                                         split_values, depth)
         return indices
 
     def weighted_index_vectors(self, data):
@@ -759,8 +762,11 @@ class DecisionTreeClassifier(object):
         node_children, split_dims, split_values, label_probs = self._get_arrays()
         if self._depth == 0:
             print "Warning: Tree depth is zero."
+            depth = 1
+        else:
+            depth = self._depth
         weights = randomforest_functions.weighted_node_ids_sparse(data.astype(numpy.float_), node_children, split_dims,
-                                                                  split_values, label_probs, self._depth)
+                                                                  split_values, label_probs, depth)
         return weights
 
     def leaf_index_vectors(self, data):
@@ -772,8 +778,6 @@ class DecisionTreeClassifier(object):
         """
         # Get the arrays with the node information.
         node_children, split_dims, split_values, label_probs = self._get_arrays()
-        if self._depth == 0:
-            print "Warning: Tree depth is zero."
         indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, split_dims, split_values)
         m = scipy.sparse.lil_matrix((data.shape[0], self.num_nodes()), dtype=numpy.int_)
         m[numpy.array(range(data.shape[0])), indices] = 1

@@ -10,6 +10,8 @@ from randomforest.forestgarrote import forest_garrote
 from randomforest.refinement import global_refinement
 import sklearn.cross_validation
 import json
+import multiprocessing
+import time
 
 
 def load_very_small_neuro_data():
@@ -249,6 +251,10 @@ def parameter_tests(dataset=0, n_jobs=None):
     :param dataset: which dataset is used
     :param n_jobs: number of parallel jobs
     """
+    if n_jobs is None:
+        n_jobs = multiprocessing.cpu_count()
+    assert n_jobs > 0
+
     if dataset == 0:
         data_x, data_y = load_small_neuro_data()
     elif dataset == 1:
@@ -280,68 +286,96 @@ def parameter_tests(dataset=0, n_jobs=None):
     alpha = [0.001, 0.0003, 0.0001]
     group_size = 4
 
-    for i, p in enumerate(rf_params):
-        kf = sklearn.cross_validation.KFold(data_x.shape[0], n_folds=10)
+    def worker(qu_in, qu_out):
+        while True:
+            item = qu_in.get()
+            if item is None:
+                break
+            i, p = item
 
-        print "Parameter set %d of %d" % (i+1, len(rf_params))
-        print json.dumps(p)
+            out_str = "# Parameter set %d of %d" % (i+1, len(rf_params)) + "\n" + json.dumps(p) + "\n\n"
 
-        rf_split_counts = []
-        rf_performance = []
-        rf_num_nodes = []
-        fg = {a: {"split_counts": [],
-                  "performance": [],
-                  "num_nodes": []}
-              for a in alpha}
+            rf_split_counts = []
+            rf_performance = []
+            rf_num_nodes = []
+            rf_train_time = []
+            fg = {a: {"split_counts": [],
+                      "performance": [],
+                      "num_nodes": [],
+                      "train_time": []}
+                  for a in alpha}
 
-        for train, test in kf:
-            train_x = data_x[train]
-            train_y = data_y[train]
-            test_x = data_x[test]
-            test_y = data_y[test]
+            kf = sklearn.cross_validation.KFold(data_x.shape[0], n_folds=10)
+            for train, test in kf:
+                train_x = data_x[train]
+                train_y = data_y[train]
+                test_x = data_x[test]
+                test_y = data_y[test]
 
-            rf = randomforest.RandomForestClassifier(n_rand_dims="auto", n_jobs=n_jobs, **p)
-            rf.fit(train_x, train_y)
-            pred, split_counts = rf.predict(test_x, return_split_counts=True)
-            split_counts /= float(len(pred))
-            count = sum(1 for a, b in zip(test_y, pred) if a == b)
-            performance = count/float(len(pred))
-
-            rf_split_counts.append(split_counts)
-            rf_performance.append(performance)
-            rf_num_nodes.append(rf.num_nodes())
-
-            for a in alpha:
-                if rf.num_trees() < group_size:
-                    refined_rf = forest_garrote(rf, train_x, train_y, group_size=None, alpha=a)
-                else:
-                    refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size, alpha=a)
-                pred, split_counts = refined_rf.predict(test_x, return_split_counts=True)
+                rf = randomforest.RandomForestClassifier(n_rand_dims="auto", n_jobs=1, **p)
+                start = time.time()
+                rf.fit(train_x, train_y)
+                end = time.time()
+                pred, split_counts = rf.predict(test_x, return_split_counts=True)
                 split_counts /= float(len(pred))
                 count = sum(1 for a, b in zip(test_y, pred) if a == b)
                 performance = count/float(len(pred))
 
-                fg[a]["split_counts"].append(split_counts)
-                fg[a]["performance"].append(performance)
-                fg[a]["num_nodes"].append(refined_rf.num_nodes())
+                rf_split_counts.append(split_counts)
+                rf_performance.append(performance)
+                rf_num_nodes.append(rf.num_nodes())
+                rf_train_time.append(end-start)
 
-        print "# performance"
-        print numpy.mean(rf_performance), numpy.std(rf_performance)
-        print "# split_counts"
-        print numpy.mean(rf_split_counts), numpy.std(rf_split_counts)
-        print "# num_nodes:"
-        print numpy.mean(rf_num_nodes), numpy.std(rf_num_nodes)
-        print ""
+                for a in alpha:
+                    start = time.time()
+                    if rf.num_trees() < group_size:
+                        refined_rf = forest_garrote(rf, train_x, train_y, group_size=None, alpha=a)
+                    else:
+                        refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size, alpha=a)
+                    end = time.time()
+                    pred, split_counts = refined_rf.predict(test_x, return_split_counts=True)
+                    split_counts /= float(len(pred))
+                    count = sum(1 for a, b in zip(test_y, pred) if a == b)
+                    performance = count/float(len(pred))
 
-        for a in alpha:
-            print "fg", a
-            print "# performance"
-            print numpy.mean(fg[a]["performance"]), numpy.std(fg[a]["performance"])
-            print "# split_counts"
-            print numpy.mean(fg[a]["split_counts"]), numpy.std(fg[a]["split_counts"])
-            print "# num_nodes:"
-            print numpy.mean(fg[a]["num_nodes"]), numpy.std(fg[a]["num_nodes"])
-            print ""
+                    fg[a]["split_counts"].append(split_counts)
+                    fg[a]["performance"].append(performance)
+                    fg[a]["num_nodes"].append(refined_rf.num_nodes())
+                    fg[a]["train_time"].append(end-start)
+
+            out_str += "# performance\n" + str(numpy.mean(rf_performance)) + " " + str(numpy.std(rf_performance)) + "\n"
+            out_str += "# train_time\n" + str(numpy.mean(rf_train_time)) + " " + str(numpy.std(rf_train_time)) + "\n"
+            out_str += "# split_counts\n" + str(numpy.mean(rf_split_counts)) + " " + str(numpy.std(rf_split_counts)) + "\n"
+            out_str += "# num_nodes\n" + str(numpy.mean(rf_num_nodes)) + " " + str(numpy.std(rf_num_nodes)) + "\n\n"
+            for a in alpha:
+                out_str += "fg " + str(a) + "\n\n"
+                out_str += "# performance\n" + str(numpy.mean(fg[a]["performance"])) + " " + str(numpy.std(fg[a]["performance"])) + "\n"
+                out_str += "# train_time\n" + str(numpy.mean(fg[a]["train_time"])) + " " + str(numpy.std(fg[a]["train_time"])) + "\n"
+                out_str += "# split_counts\n" + str(numpy.mean(fg[a]["split_counts"])) + " " + str(numpy.std(fg[a]["split_counts"])) + "\n"
+                out_str += "# num_nodes\n" + str(numpy.mean(fg[a]["num_nodes"])) + " " + str(numpy.std(fg[a]["num_nodes"])) + "\n\n"
+
+            qu_out.put((i, out_str))
+
+    # Create the workers and fill the queue.
+    qu_input = multiprocessing.Queue()
+    qu_output = multiprocessing.Queue()
+    procs = [multiprocessing.Process(target=worker, args=(qu_input, qu_output)) for _ in xrange(n_jobs)]
+    for i, p in enumerate(rf_params):
+        qu_input.put((i, p))
+
+    # Start the workers.
+    for p in procs:
+        p.start()
+        qu_input.put(None)
+
+    # Collect the worker output and print it.
+    for _ in rf_params:
+        i, s = qu_output.get()
+        print s[:-1]
+
+    # Wait for the processes.
+    for p in procs:
+        p.join()
 
 
 def parse_command_line():
@@ -377,7 +411,7 @@ def parse_command_line():
     if args.save or args.load:
         assert args.filename is not None
     if args.parameter_tests:
-        print "Running parameter tests. Only the arguments --n_jobs and --dataset are used."
+        print "# Running parameter tests. Only the arguments --n_jobs and --dataset are used."
 
     return args
 
