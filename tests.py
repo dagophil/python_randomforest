@@ -8,6 +8,60 @@ import os
 import platform
 from randomforest.forestgarrote import forest_garrote
 from randomforest.refinement import global_refinement
+import sklearn.cross_validation
+import json
+
+
+def load_very_small_neuro_data():
+    """
+    Load the 1000 neuro dataset.
+
+    :return: data_x, data_y
+    """
+    data_x = vigra.readHDF5("data/neuro/neuro_1000_raw_gt.h5", "raw")
+    data_y = vigra.readHDF5("data/neuro/neuro_1000_raw_gt.h5", "gt")
+
+    # Remove NaN values.
+    to_remove = numpy.where(numpy.isnan(data_x))
+    data_x = numpy.delete(data_x, to_remove, axis=0)
+    data_y = numpy.delete(data_y, to_remove)
+
+    return data_x, data_y
+
+
+def load_small_neuro_data():
+    """
+    Load the small neuro dataset.
+
+    :return: data_x, data_y
+    """
+    data_x = vigra.readHDF5("data/neuro/train/ffeat_br_segid0.h5", "ffeat_br")
+    data_y = numpy.array(vigra.readHDF5("data/neuro/train/gt_face_segid0.h5", "gt_face")[:, 0])
+    assert data_x.shape[0] == data_y.shape[0]
+
+    # Remove NaN values.
+    to_remove = numpy.where(numpy.isnan(data_x))
+    data_x = numpy.delete(data_x, to_remove, axis=0)
+    data_y = numpy.delete(data_y, to_remove)
+
+    return data_x, data_y
+
+
+def load_large_neuro_data():
+    """
+    Load the large neuro dataset.
+
+    :return: data_x, data_y
+    """
+    data_x = vigra.readHDF5("data/neuro/test/ffeat_br_segid0.h5", "ffeat_br")
+    data_y = numpy.array(vigra.readHDF5("data/neuro/test/gt_face_segid0.h5", "gt_face")[:, 0])
+    assert data_x.shape[0] == data_y.shape[0]
+
+    # Remove NaN values.
+    to_remove = numpy.where(numpy.isnan(data_x))
+    data_x = numpy.delete(data_x, to_remove, axis=0)
+    data_y = numpy.delete(data_y, to_remove)
+    return data_x, data_y
 
 
 def load_neuro_data():
@@ -187,6 +241,108 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
             print "%d of %d correct (%.03f%%), used %.02f splits per instance" % (count, len(pred), (100.0*count)/len(pred), split_counts)
 
 
+def parameter_tests(dataset=0, n_jobs=None):
+    """
+    Train the random forest with different parameters and compute the cross validated score.
+    Model properties, such as number of nodes, tree depth, ..., are printed to the output.
+
+    :param dataset: which dataset is used
+    :param n_jobs: number of parallel jobs
+    """
+    if dataset == 0:
+        data_x, data_y = load_small_neuro_data()
+    elif dataset == 1:
+        data_x, data_y = load_large_neuro_data()
+    elif dataset == 2:
+        data_x, data_y = load_very_small_neuro_data()
+    else:
+        raise Exception("Dataset id unknown: %d" % dataset)
+
+    # Create the random forest parameters.
+    n_estimators = [1, 2, 4, 8, 16, 32, 64, 128, 256]
+    split_selection = ["gini", "ksd", "information_gain"]
+    sampling_versions = [dict(bootstrap_sampling=True, use_sample_label_count=True, resample_count=None),
+                         dict(bootstrap_sampling=False, use_sample_label_count=False, resample_count=None),
+                         dict(bootstrap_sampling=True, use_sample_label_count=False, resample_count=None)]
+    resample_count = [8, 16, 32, 64, 128, 256, 512, 1024]
+    rf_params = []
+    for n in n_estimators:
+        for s in split_selection:
+            for smpl in sampling_versions:
+                d = dict(n_estimators=n, split_selection=s)
+                d.update(smpl)
+                rf_params.append(d)
+            for r in resample_count:
+                d = dict(n_estimators=n, split_selection=s, resample_count=r)
+                rf_params.append(d)
+
+    # Create the forest garrote parameters.
+    alpha = [0.001, 0.0003, 0.0001]
+    group_size = 4
+
+    for p in rf_params:
+        kf = sklearn.cross_validation.KFold(data_x.shape[0], n_folds=10)
+
+        print json.dumps(p)
+
+        rf_split_counts = []
+        rf_performance = []
+        rf_num_nodes = []
+        fg = {a: {"split_counts": [],
+                  "performance": [],
+                  "num_nodes": []}
+              for a in alpha}
+
+        for train, test in kf:
+            train_x = data_x[train]
+            train_y = data_y[train]
+            test_x = data_x[test]
+            test_y = data_y[test]
+
+            rf = randomforest.RandomForestClassifier(n_rand_dims="auto", n_jobs=n_jobs, **p)
+            rf.fit(train_x, train_y)
+            pred, split_counts = rf.predict(test_x, return_split_counts=True)
+            split_counts /= float(len(pred))
+            count = sum(1 for a, b in zip(test_y, pred) if a == b)
+            performance = count/float(len(pred))
+
+            rf_split_counts.append(split_counts)
+            rf_performance.append(performance)
+            rf_num_nodes.append(rf.num_nodes())
+
+            for a in alpha:
+                if rf.num_trees() < group_size:
+                    refined_rf = forest_garrote(rf, train_x, train_y, group_size=None, alpha=a)
+                else:
+                    refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size, alpha=a)
+                pred, split_counts = refined_rf.predict(test_x, return_split_counts=True)
+                split_counts /= float(len(pred))
+                count = sum(1 for a, b in zip(test_y, pred) if a == b)
+                performance = count/float(len(pred))
+
+                fg[a]["split_counts"].append(split_counts)
+                fg[a]["performance"].append(performance)
+                fg[a]["num_nodes"].append(refined_rf.num_nodes())
+
+        print "# performance"
+        print numpy.mean(rf_performance), numpy.std(rf_performance)
+        print "# split_counts"
+        print numpy.mean(rf_split_counts), numpy.std(rf_split_counts)
+        print "# num_nodes:"
+        print numpy.mean(rf_num_nodes), numpy.std(rf_num_nodes)
+        print ""
+
+        for a in alpha:
+            print "fg", a
+            print "# performance"
+            print numpy.mean(fg[a]["performance"]), numpy.std(fg[a]["performance"])
+            print "# split_counts"
+            print numpy.mean(fg[a]["split_counts"]), numpy.std(fg[a]["split_counts"])
+            print "# num_nodes:"
+            print numpy.mean(fg[a]["num_nodes"]), numpy.std(fg[a]["num_nodes"])
+            print ""
+
+
 def parse_command_line():
     """
     Parse the command line arguments.
@@ -205,6 +361,8 @@ def parse_command_line():
     parser.add_argument("--n_jobs", type=int, default=-1, help="number of jobs (-1: use number of cores)")
     parser.add_argument("--refine", action="store_true", help="do the forest garrote refinement")
     parser.add_argument("--group_size", type=int, default=None, help="group size for the forest garrote")
+    parser.add_argument("--parameter_tests", action="store_true", help="run performance tests on different parameter sets")
+    parser.add_argument("--dataset", type=int, default=0, help="which dataset is used for the performance tests")
     args = parser.parse_args()
 
     if not args.dtree and not args.rf:
@@ -215,9 +373,10 @@ def parse_command_line():
         raise Exception("It seems that the current interpreter does not use CPython. This is a problem, since the "
                         "random forest parallelization currently relies on a CPython implementation detail. Let me "
                         "know, if this is a problem for you.")
-
     if args.save or args.load:
         assert args.filename is not None
+    if args.parameter_tests:
+        print "Running parameter tests. Only the arguments --n_jobs and --dataset are used."
 
     return args
 
@@ -230,16 +389,19 @@ def main():
     """
     args = parse_command_line()
 
+    if args.parameter_tests:
+        parameter_tests(dataset=args.dataset, n_jobs=args.n_jobs)
+        return
+
     if args.dtree:
         train_dt(args.predict, args.save, args.load, args.filename)
+
     if args.rf:
         train_rf(args.n_trees, args.n_jobs, predict=args.predict, save=args.save, load=args.load,
                  filename=args.filename, refine=args.refine, group_size=args.group_size)
 
-    return 0
-
 
 if __name__ == "__main__":
     # Call the main function so the global namespace is not cluttered.
-    status = main()
-    sys.exit(status)
+    main()
+    sys.exit(0)
