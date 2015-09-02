@@ -280,9 +280,10 @@ def parameter_tests(dataset=0, n_jobs=None):
     alpha = [0.001, 0.0003, 0.0001]
     group_size = 4
 
-    for p in rf_params:
+    for i, p in enumerate(rf_params):
         kf = sklearn.cross_validation.KFold(data_x.shape[0], n_folds=10)
 
+        print "Parameter set %d of %d" % (i+1, len(rf_params))
         print json.dumps(p)
 
         rf_split_counts = []
