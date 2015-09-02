@@ -7,6 +7,7 @@ from randomforest.timer import Timer
 import os
 import platform
 from randomforest.forestgarrote import forest_garrote
+from randomforest.refinement import global_refinement
 
 
 def load_neuro_data():
@@ -166,7 +167,8 @@ def train_rf(n_trees, n_jobs, predict=True, save=False, load=False, filename=Non
     if refine:
         print "Refining the random forest using forest garrote."
         with Timer("Refining took %.03f seconds."):
-            refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
+            # refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size)
+            refined_rf = global_refinement(rf, train_x, train_y)
         print "The refined forest has %d nodes." % refined_rf.num_nodes()
 
         if save:

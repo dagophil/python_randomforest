@@ -612,12 +612,13 @@ class DecisionTreeClassifier(object):
             self._fit_resample_count(data, labels)
             return
 
-    def _get_arrays(self, return_node_sizes=False):
+    def _get_arrays(self, return_node_sizes=False, return_num_leaves=False):
         """
         Return the children, the split dimensions, the split values and the label probabilities of each node as numpy arrays.
 
         :param return_node_sizes: if this is True, the number of instances in each node is returned
-        :return: node_children, split_dimensions, split_values, label_probs, (optional: node_sizes)
+        :param return_num_leaves: if this is True, the number of leaves is returned
+        :return: node_children, split_dimensions, split_values, label_probs, (optional: node_sizes), (optional: num_leaves)
         """
         num_nodes = self._graph.number_of_nodes()
         node_children = -numpy.ones((num_nodes, 2), numpy.int_)
@@ -625,6 +626,7 @@ class DecisionTreeClassifier(object):
         split_values = numpy.zeros((num_nodes,), numpy.float_)
         label_probs = numpy.zeros((num_nodes, len(self._label_names)), numpy.float_)
         node_sizes = numpy.zeros((num_nodes,), numpy.int_)
+        num_leaves = 0
         for node_id in self._graph.nodes():
             node = self._graph.node[node_id]
 
@@ -652,10 +654,15 @@ class DecisionTreeClassifier(object):
                 node_children[node_id, 1] = n1_id
                 split_dims[node_id] = node["split_dim"]
                 split_values[node_id] = node["split_value"]
+            else:
+                num_leaves += 1
+
+        ret = [node_children, split_dims, split_values, label_probs]
         if return_node_sizes:
-            return node_children, split_dims, split_values, label_probs, node_sizes
-        else:
-            return node_children, split_dims, split_values, label_probs
+            ret.append(node_sizes)
+        if return_num_leaves:
+            ret.append(num_leaves)
+        return tuple(ret)
 
     def predict_proba(self, data, return_split_counts=False, node_weights=False):
         """
@@ -756,10 +763,26 @@ class DecisionTreeClassifier(object):
                                                                   split_values, label_probs, self._depth)
         return weights
 
+    def leaf_index_vectors(self, data):
+        """
+        Return the leaf index vector of each instance in data.
+
+        :param data: the data
+        :return: leaf index vectors (shape data.shape[0] x num_leaves, value is 1 if instance is in node else 0)
+        """
+        # Get the arrays with the node information.
+        node_children, split_dims, split_values, label_probs = self._get_arrays()
+        if self._depth == 0:
+            print "Warning: Tree depth is zero."
+        indices = randomforest_functions.leaf_ids(data.astype(numpy.float_), node_children, split_dims, split_values)
+        m = scipy.sparse.lil_matrix((data.shape[0], self.num_nodes()), dtype=numpy.int_)
+        m[numpy.array(range(data.shape[0])), indices] = 1
+        return m
+
     def sub_fg_tree(self, nodes, weights, num_trees):
         """
-        Return a decision tree, where only the given nodes remain and use the weights to assign new label probabilities.
-        All nodes on the path from the root node to the given nodes stay in the tree, too.
+        Return a decision tree, where only the nodes in the path to the given nodes remain.
+        Use the weights to assign new label probabilities according to the forest garrote.
 
         :param nodes: list with node ids
         :param weights: weights for the given nodes
@@ -834,6 +857,85 @@ class DecisionTreeClassifier(object):
             # Compute the label probability.
             w = new_node["weight"] * num_trees
             new_node["label_probs"] = numpy.array([1-w, w])
+
+            # Add the children to the queue.
+            for c in self._graph.successors(node_id):
+                if keep[c] == 1:
+                    qu.append(c)
+            next_id += 1
+
+        dt._graph = gr
+        dt._depth = depth
+        return dt
+
+    def sub_gr_tree(self, nodes, weights, scale):
+        """
+        Return a decision tree, where only the nodes in the path to the given nodes remain.
+        Use the weights to assign new label probabilities according to the global refinement.
+
+        :param nodes: list with node ids
+        :param weights weights for the given nodes
+        :param scale: additional scaling for the weights
+        :return: sub decision tree
+        """
+        dt = DecisionTreeClassifier(n_rand_dims=self._n_rand_dims, bootstrap_sampling=self._bootstrap_sampling,
+                                    use_sample_label_count=self._use_sample_label_count,
+                                    resample_count=self._resample_count, max_depth=self._max_depth,
+                                    min_count=self._min_count)
+        dt._label_names = numpy.array(self._label_names)
+
+        # Walk the tree from the given nodes to the root node and mark all nodes on the path to be kept.
+        if len(nodes) == 0:
+            return None
+        keep = numpy.zeros(self.num_nodes(), dtype=numpy.uint8)
+        keep[nodes] = 1
+        for n in nodes:
+            parents = self._graph.predecessors(n)
+            while len(parents) > 0:
+                p = parents[0]
+                keep[p] = 1
+                for c in self._graph.successors(p):
+                    keep[c] = 1
+                parents = self._graph.predecessors(p)
+        assert keep[0] == 1  # the root node has to be kept
+
+        # Make the weights accessible by node id.
+        node_weights = -numpy.ones((self.num_nodes(),), dtype=numpy.float_)
+        node_weights[nodes] = weights
+
+        # Build the new graph.
+        node_map = numpy.zeros(self.num_nodes(), dtype=numpy.int_)
+        gr = networkx.DiGraph()
+        qu = collections.deque()
+        qu.append(0)
+        next_id = 0
+        depth = 0
+        while len(qu) > 0:
+            # Get the node from the old graph and add it to the new graph.
+            node_id = qu.popleft()
+            node = self._graph.node[node_id]
+            gr.add_node(next_id, depth=node["depth"])
+            new_node = gr.node[next_id]
+            node_map[node_id] = next_id
+            depth = max(depth, new_node["depth"])
+
+            # Update the node information.
+            has_children = any([keep[c] == 1 for c in self._graph.successors(node_id)])
+            if has_children:
+                new_node["split_dim"] = node["split_dim"]
+                new_node["split_value"] = node["split_value"]
+            if "is_left" in node:
+                new_node["is_left"] = node["is_left"]
+            if node_id != 0:
+                p_id = node_map[self._graph.predecessors(node_id)[0]]
+                gr.add_edge(p_id, next_id)
+
+            # Compute the label probability.
+            if node_weights[node_id] >= 0:
+                p = (1+node_weights[node_id]) / 2.0
+                new_node["label_probs"] = numpy.array([1-p, p])
+            else:
+                new_node["label_probs"] = numpy.array([0.5, 0.5])
 
             # Add the children to the queue.
             for c in self._graph.successors(node_id):
@@ -1058,6 +1160,15 @@ class RandomForestClassifier(object):
         """
         return scipy.sparse.hstack([tree.weighted_index_vectors(data) for tree in self._trees])
 
+    def leaf_index_vectors(self, data):
+        """
+        Return the leaf index vector of each instance in data.
+
+        :param data: the data
+        :return: leaf index vectors (shape data.shape[0] x num_leaves, value is 1 if instance is in leaf else 0)
+        """
+        return scipy.sparse.hstack([tree.leaf_index_vectors(data) for tree in self._trees])
+
     def to_string(self):
         """
         Return a string that contains all information of the random forest classifier.
@@ -1084,14 +1195,15 @@ class RandomForestClassifier(object):
         rf._label_names = numpy.array(d["label_names"][0], dtype=numpy.dtype(d["label_names"][1]))
         return rf
 
-    def sub_fg_forest(self, nodes, weights, scale):
+    def _sub_forest(self, nodes, weights, scale, tree_funcs):
         """
-        Return a random forest, where only the given nodes remain and use the weights to assign new label probabilities.
-        All nodes on the path from the root nodes to the given nodes stay in the forest, too.
+        Return a random forest, where only the nodes in the path to the given nodes remain.
+        Use the functions in tree_funcs to construct the trees.
 
         :param nodes: list with node ids
         :param weights: weights for the given nodes
         :param scale: scale the weights in each node by this factor
+        :param tree_funcs: container with tree construction functions
         :return: sub random forest
         """
         # Map the forest ids to the tree ids.
@@ -1108,6 +1220,29 @@ class RandomForestClassifier(object):
         # Build the random forest by taking the sub trees.
         rf = RandomForestClassifier(n_jobs=self._n_jobs)
         rf._label_names = numpy.array(self._label_names)
-        rf._trees = [tree.sub_fg_tree(n, w, scale) for tree, n, w in zip(self._trees, tree_nodes, tree_weights)]
+        rf._trees = [fn(n, w, scale) for fn, n, w in zip(tree_funcs, tree_nodes, tree_weights)]
         rf._trees = [tree for tree in rf._trees if tree is not None]
         return rf
+
+    def sub_fg_forest(self, nodes, weights, scale):
+        """
+        Return a random forest, where only the nodes in the path to the given nodes remain.
+        Use the weights to assign new label probabilities according to the forest garrote.
+
+        :param nodes: list with node ids
+        :param weights: weights for the given nodes
+        :param scale: scale the weights in each node by this factor
+        :return: sub random forest
+        """
+        return self._sub_forest(nodes, weights, scale, [tree.sub_fg_tree for tree in self._trees])
+
+    def sub_gr_forest(self, nodes, weights):
+        """
+        Return a random forest, where only the nodes in the path to the given nodes remain.
+        Use the weights to assign new label probabilities according to the global refinement.
+
+        :param nodes: list with node ids
+        :param weights: weights for the given nodes
+        :return: sub random forest
+        """
+        return self._sub_forest(nodes, weights, 1.0, [tree.sub_gr_tree for tree in self._trees])
