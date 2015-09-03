@@ -266,7 +266,7 @@ def parameter_test_worker(i, p, num_params, alpha, group_size, data_x, data_y):
 
     kf = sklearn.cross_validation.KFold(data_x.shape[0], n_folds=10)
     for kf_i, (train, test) in enumerate(kf):
-        sys.stderr.write("kf %d of %d\n" % (kf_i+1, len(kf)))
+        print "## kf %d of %d" % (kf_i+1, len(kf))
         train_x = data_x[train]
         train_y = data_y[train]
         test_x = data_x[test]
@@ -289,9 +289,9 @@ def parameter_test_worker(i, p, num_params, alpha, group_size, data_x, data_y):
 
         # Train the forest garrote and get the performance.
         for a_i, a in enumerate(alpha):
-            sys.stderr.write("forest garrote %d of %d\n" % (a_i+1, len(alpha)))
+            print "## forest garrote %d of %d" % (a_i+1, len(alpha))
             start = time.time()
-            if rf.num_trees() < group_size:
+            if rf.num_trees() <= group_size:
                 refined_rf = forest_garrote(rf, train_x, train_y, group_size=None, alpha=a)
             else:
                 refined_rf = forest_garrote(rf, train_x, train_y, group_size=group_size, alpha=a)
@@ -319,6 +319,8 @@ def parameter_test_worker(i, p, num_params, alpha, group_size, data_x, data_y):
         out_str += "# num_nodes\n" + str(numpy.mean(fg[a]["num_nodes"])) + " " + str(numpy.std(fg[a]["num_nodes"])) + "\n\n"
 
     print out_str[:-1]
+    with open("LOGFILE.txt", "a") as f:
+        f.write(out_str)
 
 
 def parameter_tests(dataset=0, n_jobs=None):

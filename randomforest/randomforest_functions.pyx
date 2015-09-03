@@ -383,6 +383,7 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
                 next_node = children[node, 0]
             else:
                 next_node = children[node, 1]
+            assert 0 <= next_node < children.shape[0]
             rows[next] = i
             cols[next] = next_node
             vals[next] = label_probs[next_node, 1] - label_probs[node, 1]
