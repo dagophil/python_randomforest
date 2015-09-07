@@ -364,7 +364,7 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
     assert label_probs.shape[1] == 2
     assert label_probs.shape[0] == children.shape[0]
 
-    cdef INT_t count_nonzero = data.shape[0] * tree_depth
+    cdef INT_t count_nonzero = data.shape[0] * (tree_depth+1)
     cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
     cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
     cdef numpy.ndarray[FLOAT_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=FLOAT)
@@ -389,5 +389,6 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
             vals[next] = label_probs[next_node, 1] - label_probs[node, 1]
             next += 1
             node = next_node
+    assert next <= count_nonzero
 
     return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
