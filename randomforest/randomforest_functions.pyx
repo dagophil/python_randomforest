@@ -1,10 +1,12 @@
 #cython: boundscheck=False, wraparound=False, nonecheck=False, cdivision=True
+#distutils: language=c++
 
 import numpy
 cimport numpy
 cimport cython
 import scipy.sparse
 from libc.math cimport log
+from libcpp.vector cimport vector
 
 FLOAT = numpy.float_
 ctypedef numpy.float_t FLOAT_t
@@ -24,7 +26,7 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
     :param priors: prior label count
     :return: best_gini, index, split_found
     """
-    cdef numpy.ndarray[INT_t, ndim=1] counts = numpy.zeros((len(priors,)), dtype=INT)
+    cdef vector[INT_t] counts = vector[INT_t](priors.shape[0], 0)
     cdef FLOAT_t count_left = 0
     cdef FLOAT_t count_right = arr.shape[0]
     cdef FLOAT_t best_gini = arr.shape[0]
@@ -46,7 +48,7 @@ def find_best_gini(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1
         split_found = True
         gini_left = 1.0
         gini_right = 1.0
-        for j in xrange(counts.shape[0]):
+        for j in xrange(counts.size()):
             c = counts[j]
             p_left = c / count_left
             p_right = (priors[j] - c) / count_right
@@ -69,8 +71,8 @@ def find_best_ksd(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1]
     :param priors: prior label count
     :return: best_ksd, index, split_found
     """
-    cdef numpy.ndarray[FLOAT_t, ndim=1] increment = numpy.zeros((len(priors,)), dtype=FLOAT)
-    cdef numpy.ndarray[FLOAT_t, ndim=1] relative_counts = numpy.zeros((len(priors,)), dtype=FLOAT)
+    cdef vector[FLOAT_t] increment = vector[FLOAT_t](priors.shape[0], 0)
+    cdef vector[FLOAT_t] relative_counts = vector[FLOAT_t](priors.shape[0], 0)
     cdef INT_t i, j, k, l
     cdef INT_t best_index
     cdef FLOAT_t score
@@ -109,7 +111,7 @@ def find_best_ig(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] 
     :param priors: prior label count
     :return: best_ig, index, split_found
     """
-    cdef numpy.ndarray[INT_t, ndim=1] counts = numpy.zeros((len(priors,)), dtype=INT)
+    cdef vector[INT_t] counts = vector[INT_t](priors.shape[0], 0)
     cdef FLOAT_t count_left = 0
     cdef FLOAT_t count_right = arr.shape[0]
     cdef FLOAT_t best_ig = arr.shape[0] * log(float(priors.shape[0]))
@@ -131,7 +133,7 @@ def find_best_ig(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1] 
 
         split_found = True
         ig = 0
-        for j in xrange(counts.shape[0]):
+        for j in xrange(counts.size()):
             c = counts[j]
             if c != 0:
                 ig -= c * log(c / count_left)
@@ -261,29 +263,26 @@ def node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[INT_t, nd
     :return: node index vectors (shape data.shape[0] x num_nodes, value is 1 if instance is in node else 0)
     """
     cdef INT_t count_nonzero = data.shape[0] * tree_depth
-    cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
-    cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
-    cdef numpy.ndarray[UINT8_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=UINT8)  # this should be boolean, but cython does not support bool arrays
-    cdef INT_t i, next, node
+    cdef vector[INT_t] rows
+    cdef vector[INT_t] cols
+    cdef vector[UINT8_t] vals
+    cdef INT_t i, node
 
-    next = 0
     for i in xrange(data.shape[0]):
         node = 0
-        rows[next] = i
-        cols[next] = node
-        vals[next] = 1
-        next += 1
+        rows.push_back(i)
+        cols.push_back(node)
+        vals.push_back(1)
         while children[node, 0] >= 0:
             if data[i, split_dims[node]] < split_values[node]:
                 node = children[node, 0]
             else:
                 node = children[node, 1]
-            rows[next] = i
-            cols[next] = node
-            vals[next] = 1
-            next += 1
+            rows.push_back(i)
+            cols.push_back(node)
+            vals.push_back(1)
 
-    return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
+    return scipy.sparse.coo_matrix((vals, (rows, cols)), shape=(data.shape[0], children.shape[0]))
 
 
 def adjusted_node_weights(numpy.ndarray[INT_t, ndim=2] children, numpy.ndarray[FLOAT_t, ndim=2] label_probs):
@@ -365,30 +364,26 @@ def weighted_node_ids_sparse(numpy.ndarray[FLOAT_t, ndim=2] data, numpy.ndarray[
     assert label_probs.shape[0] == children.shape[0]
 
     cdef INT_t count_nonzero = data.shape[0] * (tree_depth+1)
-    cdef numpy.ndarray[INT_t, ndim=1] rows = numpy.zeros(count_nonzero, dtype=INT)
-    cdef numpy.ndarray[INT_t, ndim=1] cols = numpy.zeros(count_nonzero, dtype=INT)
-    cdef numpy.ndarray[FLOAT_t, ndim=1] vals = numpy.zeros(count_nonzero, dtype=FLOAT)
-    cdef INT_t i, next, node, next_node
+    cdef vector[INT_t] rows
+    cdef vector[INT_t] cols
+    cdef vector[FLOAT_t] vals
+    cdef INT_t i, node, next_node
     cdef FLOAT_t s
 
-    next = 0
     for i in xrange(data.shape[0]):
         node = 0
-        rows[next] = i
-        cols[next] = node
-        vals[next] = label_probs[node, 1]
-        next += 1
+        rows.push_back(i)
+        cols.push_back(node)
+        vals.push_back(label_probs[node, 1])
         while children[node, 0] >= 0:
             if data[i, split_dims[node]] < split_values[node]:
                 next_node = children[node, 0]
             else:
                 next_node = children[node, 1]
             assert 0 <= next_node < children.shape[0]
-            rows[next] = i
-            cols[next] = next_node
-            vals[next] = label_probs[next_node, 1] - label_probs[node, 1]
-            next += 1
+            rows.push_back(i)
+            cols.push_back(next_node)
+            vals.push_back(label_probs[next_node, 1] - label_probs[node, 1])
             node = next_node
-    assert next <= count_nonzero
 
-    return scipy.sparse.coo_matrix((vals[:next], (rows[:next], cols[:next])), shape=(data.shape[0], children.shape[0]))
+    return scipy.sparse.coo_matrix((vals, (rows, cols)), shape=(data.shape[0], children.shape[0]))
