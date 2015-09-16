@@ -92,10 +92,10 @@ def find_best_ksd(numpy.ndarray[INT_t, ndim=1] arr, numpy.ndarray[INT_t, ndim=1]
 
         split_found = True
 
-        score = 1.0
+        score = 0.0
         for j in xrange(priors.shape[0]-1):
             for k in xrange(j+1, priors.shape[0]):
-                score *= abs(relative_counts[j] - relative_counts[k])
+                score += abs(relative_counts[j] - relative_counts[k])
         if score > best_score:
             best_score = score
             best_index = i
